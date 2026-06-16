@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from policy.canonical import STATE_DIR, STATE_FILE, dump_json, load_json, verification_hint  # noqa: E402
+from policy.canonical import STATE_DIR, STATE_FILE, dump_json, load_json  # noqa: E402
 
 
 def _save(data: dict) -> None:
@@ -23,7 +23,6 @@ def _load() -> dict:
             "pending_verification": False,
             "last_edit_at": None,
             "last_verified_command": None,
-            "last_verification_candidate": None,
         },
     )
 
@@ -42,12 +41,10 @@ def inspect_bash() -> int:
     tool_input = payload.get("tool_input", {})
     command = tool_input.get("command") or tool_input.get("cmd") or tool_input.get("input") or ""
     data = _load()
-    if verification_hint(command):
-        data["last_verification_candidate"] = command
-        data["last_verified_at"] = int(time.time())
     if "agent_engineering_standard_verified=1" in command.lower():
         data["pending_verification"] = False
         data["last_verified_command"] = command
+        data["last_verified_at"] = int(time.time())
     _save(data)
     print("{}")
     return 0

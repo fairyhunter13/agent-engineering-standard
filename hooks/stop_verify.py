@@ -24,20 +24,13 @@ def main(argv: list[str]) -> int:
     data = load_json(STATE_FILE, {"pending_verification": False})
     if not data.get("pending_verification"):
         return _codex_ok() if tool == "codex" else _claude_ok()
-    candidate = data.get("last_verification_candidate")
     message = f"Verification is still pending for the last edit. Run a relevant check before claiming completion ({tool})."
-    if candidate:
-        message = (
-            "A possible verification command was seen, but the hook does not treat repository-specific checks as authoritative. "
-            f"Confirm the relevant verification explicitly before claiming completion ({tool}). Last candidate: {candidate}"
-        )
     if tool == "codex":
         print(
             json.dumps(
                 {
-                    "continue": False,
-                    "stopReason": "verification pending",
-                    "systemMessage": message,
+                    "decision": "block",
+                    "reason": message,
                 }
             )
         )

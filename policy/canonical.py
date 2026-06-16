@@ -239,14 +239,6 @@ def render_codex_hooks(repo_root: Path | None = None) -> dict:
     return rendered
 
 
-def verification_hint(command: str) -> bool:
-    lowered = command.lower()
-    keywords = (" test", " check", " verify", " lint", " compile", " build", " spec", " validate")
-    if "agent_engineering_standard_verified=1" in lowered:
-        return True
-    return any(token in f" {lowered}" for token in keywords)
-
-
 def claude_skill_sources(agent: str, repo_root: Path | None = None) -> dict[str, Path]:
     base = (repo_root or REPO_ROOT) / "skills" / agent
     return {name: base / name for name in SKILL_NAMES}

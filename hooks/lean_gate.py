@@ -15,7 +15,7 @@ def _emit(payload: dict) -> int:
 
 
 def _allow() -> int:
-    return _emit({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow"}})
+    return 0
 
 
 def _deny(reason: str) -> int:
