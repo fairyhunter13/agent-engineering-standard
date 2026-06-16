@@ -8,25 +8,18 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from policy.canonical import (  # noqa: E402
-    HOME,
-    Result,
-)
-from scripts.install_policy import run_install  # noqa: E402
+from policy.codex import hooks_path  # noqa: E402
+from policy.shared import HOME, Result  # noqa: E402
+from scripts.verify_claude import verify_claude  # noqa: E402
+from scripts.verify_codex import verify_codex  # noqa: E402
 
 
 def verify_policy(home: Path = HOME, repo_root: Path | None = None) -> list[Result]:
     repo_root = (repo_root or Path(__file__).resolve().parents[1]).resolve()
-    results = run_install(
-        apply=False,
-        dry_run=False,
-        targets={"claude", "codex", "skills", "hooks"},
-        profiles={"main", "account1", "account2"},
-        adopt_legacy_shell_profiles=False,
-        home=home,
-        repo_root=repo_root,
-    )
-    results.append(Result("codex-hook-trust", "warning", "Codex hooks.json is installed, but manual trust review in /hooks is still required", str(home / ".codex" / "hooks.json")))
+    results: list[Result] = []
+    results.extend(verify_claude(profiles={"main", "account1", "account2"}, home=home, repo_root=repo_root))
+    results.extend(verify_codex(home=home, repo_root=repo_root))
+    results.append(Result("codex-hook-trust", "warning", "Codex hooks.json is installed, but manual trust review in /hooks is still required", str(hooks_path(home))))
     return results
 
 

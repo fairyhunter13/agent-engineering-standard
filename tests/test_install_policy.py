@@ -57,6 +57,13 @@ OSE
     main_settings = json.loads((home / ".claude" / "settings.json").read_text())
     assert main_settings["mcpServers"]["opencode-search"]["url"] == "http://127.0.0.1:8765/mcp"
     assert main_settings["other"] is True
+    all_commands = [
+        hook["command"]
+        for entries in main_settings["hooks"].values()
+        for entry in entries
+        for hook in entry.get("hooks", [])
+    ]
+    assert "python3 /home/hafiz/git/github.com/fairyhunter13/agent-engineering-standard/hooks/lean_gate.py" not in all_commands
     assert (home / ".codex" / "config.toml").read_text() == 'developer_instructions = "keep"\n'
     assert dot_claude_main.read_text() == '{"mcpServers":{"opencode-search":{"type":"stdio"}}}'
     assert (home / ".claude" / "skills" / "lean-change").is_symlink()
