@@ -19,10 +19,32 @@ def _claude_ok() -> int:
     return 0
 
 
+def _read_payload() -> dict:
+    try:
+        return json.load(sys.stdin)
+    except Exception:
+        return {}
+
+
+def _scope_matches(data: dict, payload: dict) -> bool:
+    stored_session = data.get("session_id")
+    current_session = payload.get("session_id")
+    if stored_session and current_session:
+        return stored_session == current_session
+    stored_cwd = data.get("cwd")
+    current_cwd = payload.get("cwd")
+    if stored_cwd and current_cwd:
+        return stored_cwd == current_cwd
+    return True
+
+
 def main(argv: list[str]) -> int:
     tool = argv[1] if len(argv) > 1 else "agent"
+    payload = _read_payload()
     data = load_json(STATE_FILE, {"pending_verification": False})
     if not data.get("pending_verification"):
+        return _codex_ok() if tool == "codex" else _claude_ok()
+    if not _scope_matches(data, payload):
         return _codex_ok() if tool == "codex" else _claude_ok()
     message = f"Verification is still pending for the last edit. Run a relevant check before claiming completion ({tool})."
     if tool == "codex":

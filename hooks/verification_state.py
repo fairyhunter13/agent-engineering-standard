@@ -11,6 +11,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from policy.canonical import STATE_DIR, STATE_FILE, dump_json, load_json  # noqa: E402
 
 
+def _read_payload() -> dict:
+    try:
+        return json.load(sys.stdin)
+    except Exception:
+        return {}
+
+
+def _apply_scope(data: dict, payload: dict) -> None:
+    session_id = payload.get("session_id")
+    cwd = payload.get("cwd")
+    if session_id:
+        data["session_id"] = session_id
+    if cwd:
+        data["cwd"] = cwd
+
+
 def _save(data: dict) -> None:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     STATE_FILE.write_text(dump_json(data))
@@ -23,12 +39,16 @@ def _load() -> dict:
             "pending_verification": False,
             "last_edit_at": None,
             "last_verified_command": None,
+            "session_id": None,
+            "cwd": None,
         },
     )
 
 
 def mark_edit() -> int:
+    payload = _read_payload()
     data = _load()
+    _apply_scope(data, payload)
     data["pending_verification"] = True
     data["last_edit_at"] = int(time.time())
     _save(data)
@@ -37,10 +57,11 @@ def mark_edit() -> int:
 
 
 def inspect_bash() -> int:
-    payload = json.load(sys.stdin)
+    payload = _read_payload()
     tool_input = payload.get("tool_input", {})
     command = tool_input.get("command") or tool_input.get("cmd") or tool_input.get("input") or ""
     data = _load()
+    _apply_scope(data, payload)
     if "agent_engineering_standard_verified=1" in command.lower():
         data["pending_verification"] = False
         data["last_verified_command"] = command
