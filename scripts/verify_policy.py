@@ -1,0 +1,48 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from policy.canonical import (  # noqa: E402
+    HOME,
+    Result,
+)
+from scripts.install_policy import run_install  # noqa: E402
+
+
+def verify_policy(home: Path = HOME, repo_root: Path | None = None) -> list[Result]:
+    repo_root = (repo_root or Path(__file__).resolve().parents[1]).resolve()
+    results = run_install(
+        apply=False,
+        dry_run=False,
+        targets={"claude", "codex", "skills", "hooks"},
+        profiles={"main", "account1", "account2"},
+        adopt_legacy_shell_profiles=False,
+        home=home,
+        repo_root=repo_root,
+    )
+    results.append(Result("codex-hook-trust", "warning", "Codex hooks.json is installed, but manual trust review in /hooks is still required", str(home / ".codex" / "hooks.json")))
+    return results
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Verify global agent engineering policy install.")
+    parser.add_argument("--json", action="store_true", dest="json_out")
+    args = parser.parse_args()
+    results = verify_policy()
+    if args.json_out:
+        print(json.dumps([result.__dict__ for result in results], indent=2))
+    else:
+        for result in results:
+            print(f"[{result.status}] {result.tool}: {result.message}")
+    failures = [result for result in results if result.status in {"missing", "error"}]
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
