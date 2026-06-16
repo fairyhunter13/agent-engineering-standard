@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -9,6 +10,25 @@ from pathlib import Path
 PROTECTED_MARKERS = ("/secrets/", "/.local/share/opencode-search/", "/GoogleDrive/", "/OneDrive/")
 UNGATED_MARKERS = ("/.claude/", "/.codex/", "/.agents/skills/", "/.local/state/agent-engineering-standard/")
 VERIFICATION_MARKER = "agent_engineering_standard_verified=1"
+MUTATING_BASH_PATTERNS = (
+    " >",
+    ">>",
+    "| tee",
+    "tee ",
+    "sed -i",
+    "perl -pi",
+    "python - <<",
+    "python3 - <<",
+    "cat <<",
+    "touch ",
+    "truncate ",
+    "cp ",
+    "mv ",
+    "rm ",
+)
+SOURCE_PATH_RE = re.compile(
+    r"(?P<path>(?:\./|/)?[\w./-]+\.(?:py|js|jsx|ts|tsx|json|md|txt|yaml|yml|toml|sh|bash|zsh|ini|cfg|conf|html|css|go|rs|java|kt|c|h|cpp|hpp|rb|php|swift|sql|xml))"
+)
 
 
 def emit_json(payload: dict) -> int:
@@ -69,6 +89,49 @@ def pre_tool_use_main() -> int:
             }
         )
     allowed, reason = evaluate_edit_guard(payload)
+    if allowed:
+        return 0
+    return emit_json(
+        {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": reason,
+            }
+        }
+    )
+
+
+def evaluate_bash_guard(payload: dict) -> tuple[bool, str]:
+    tool_input = payload.get("tool_input", {})
+    command = (tool_input.get("command") or tool_input.get("cmd") or tool_input.get("input") or "").strip()
+    lowered = command.lower()
+    if not command or VERIFICATION_MARKER in lowered:
+        return True, ""
+    if not any(pattern in lowered for pattern in MUTATING_BASH_PATTERNS):
+        return True, ""
+    match = SOURCE_PATH_RE.search(command)
+    if not match:
+        return True, ""
+    path = match.group("path")
+    if any(marker in path for marker in UNGATED_MARKERS):
+        return True, ""
+    return False, f"Shell-based file mutation is not allowed for {path}. Use Edit/Write/apply_patch so policy hooks can inspect the change."
+
+
+def pre_bash_main() -> int:
+    payload = read_payload()
+    if not payload:
+        return emit_json(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": "Hook input was not valid JSON.",
+                }
+            }
+        )
+    allowed, reason = evaluate_bash_guard(payload)
     if allowed:
         return 0
     return emit_json(

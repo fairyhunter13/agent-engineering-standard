@@ -7,6 +7,7 @@ from hooks.claude import stop_verify as claude_stop_verify
 from hooks.claude import verification_state as claude_verification_state
 from hooks.codex import stop_verify as codex_stop_verify
 from hooks.codex import verification_state as codex_verification_state
+from hooks.core import evaluate_bash_guard
 
 
 def test_stop_verify_codex_blocks_with_current_contract(tmp_path: Path, capsys) -> None:
@@ -120,3 +121,21 @@ def test_claude_and_codex_verification_state_share_logic(tmp_path: Path, monkeyp
     state = json.loads(state_file.read_text())
     assert state["pending_verification"] is True
     assert state["session_id"] == "sess-2"
+
+
+def test_bash_guard_blocks_shell_write_to_source_like_file() -> None:
+    allowed, reason = evaluate_bash_guard({"tool_input": {"command": "cat <<'EOF' > oversized.txt\n1\nEOF"}})
+    assert allowed is False
+    assert "Shell-based file mutation is not allowed" in reason
+
+
+def test_bash_guard_allows_read_only_command() -> None:
+    allowed, reason = evaluate_bash_guard({"tool_input": {"command": "pytest -q"}})
+    assert allowed is True
+    assert reason == ""
+
+
+def test_bash_guard_allows_explicit_verification_command() -> None:
+    allowed, reason = evaluate_bash_guard({"tool_input": {"command": "AGENT_ENGINEERING_STANDARD_VERIFIED=1 python3 -c \"print(0)\""}})
+    assert allowed is True
+    assert reason == ""

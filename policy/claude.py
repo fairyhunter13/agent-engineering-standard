@@ -29,6 +29,10 @@ CLAUDE_SETTINGS_HOOKS = {
         {
             "matcher": "Edit|Write|MultiEdit|NotebookEdit",
             "hooks": [{"type": "command", "command": "python3 {repo}/hooks/claude/pre_tool_use.py"}],
+        },
+        {
+            "matcher": "Bash",
+            "hooks": [{"type": "command", "command": "python3 {repo}/hooks/claude/pre_bash.py"}],
         }
     ],
     "PostToolUse": [

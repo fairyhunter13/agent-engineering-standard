@@ -13,6 +13,10 @@ CODEX_HOOKS = {
             {
                 "matcher": "Edit|Write",
                 "hooks": [{"type": "command", "command": "python3 {repo}/hooks/codex/pre_tool_use.py"}],
+            },
+            {
+                "matcher": "^Bash$",
+                "hooks": [{"type": "command", "command": "python3 {repo}/hooks/codex/pre_bash.py"}],
             }
         ],
         "PostToolUse": [
