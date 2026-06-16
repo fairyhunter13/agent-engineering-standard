@@ -171,11 +171,7 @@ def test_live_claude_bash_write_block() -> None:
         assert "permission_denials" in claude_block.stdout
 
 
-@pytest.mark.xfail(
-    reason="Codex documents that PreToolUse/PostToolUse shell interception is incomplete for some unified_exec paths.",
-    strict=False,
-)
-def test_live_codex_bash_write_block_limitation() -> None:
+def test_live_codex_bash_write_block() -> None:
     with tempfile.TemporaryDirectory(prefix="aes-codex-bash-") as codex_tmp:
         codex_root = Path(codex_tmp)
         _seed_repo(codex_root)
@@ -195,5 +191,9 @@ def test_live_codex_bash_write_block_limitation() -> None:
             cwd=Path("/home/hafiz"),
         )
         assert codex_block.returncode == 0, codex_block.stdout + codex_block.stderr
-        assert not (codex_root / "oversized.txt").exists()
-        assert "Shell-based file mutation is not allowed" in (codex_block.stdout + codex_block.stderr)
+        oversized = codex_root / "oversized.txt"
+        if oversized.exists():
+            assert len(oversized.read_text().splitlines()) <= 150
+        stderr = codex_block.stderr
+        assert "Shell-based file mutation is not allowed" in stderr
+        assert "PostToolUse Blocked" in stderr

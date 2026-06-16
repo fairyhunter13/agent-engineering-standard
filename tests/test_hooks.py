@@ -7,7 +7,7 @@ from hooks.claude import stop_verify as claude_stop_verify
 from hooks.claude import verification_state as claude_verification_state
 from hooks.codex import stop_verify as codex_stop_verify
 from hooks.codex import verification_state as codex_verification_state
-from hooks.core import evaluate_bash_guard
+from hooks.core import enforce_post_apply_patch, evaluate_bash_guard, evaluate_edit_guard, write_snapshot
 
 
 def test_stop_verify_codex_blocks_with_current_contract(tmp_path: Path, capsys) -> None:
@@ -139,3 +139,27 @@ def test_bash_guard_allows_explicit_verification_command() -> None:
     allowed, reason = evaluate_bash_guard({"tool_input": {"command": "AGENT_ENGINEERING_STANDARD_VERIFIED=1 python3 -c \"print(0)\""}})
     assert allowed is True
     assert reason == ""
+
+
+def test_apply_patch_guard_blocks_large_new_file_for_codex() -> None:
+    patch = "*** Begin Patch\n*** Add File: oversized.txt\n" + "".join(f"+{i}\n" for i in range(1, 201)) + "*** End Patch\n"
+    allowed, reason = evaluate_edit_guard({"tool_name": "apply_patch", "tool_input": {"command": patch}})
+    assert allowed is False
+    assert reason == "New file too large: 200 lines exceeds 150."
+
+
+def test_apply_patch_guard_blocks_large_net_change_for_existing_file() -> None:
+    patch = "*** Begin Patch\n*** Update File: notes.txt\n@@\n" + "".join(f"+line {i}\n" for i in range(1, 42)) + "*** End Patch\n"
+    allowed, reason = evaluate_edit_guard({"tool_name": "apply_patch", "tool_input": {"command": patch}})
+    assert allowed is False
+    assert reason == "Diff too large: +41 net lines exceeds 40."
+
+
+def test_post_apply_patch_reverts_oversized_new_file(tmp_path: Path) -> None:
+    state_dir = tmp_path / "state"
+    payload = {"tool_name": "apply_patch", "session_id": "sess-1", "cwd": str(tmp_path), "tool_input": {"command": "*** Begin Patch\n*** Add File: oversized.txt\n+1\n*** End Patch\n"}}
+    write_snapshot(state_dir, payload)
+    (tmp_path / "oversized.txt").write_text("".join(f"{i}\n" for i in range(1, 201)))
+    violation = enforce_post_apply_patch({"tool_name": "apply_patch", "session_id": "sess-1", "cwd": str(tmp_path), "tool_input": payload["tool_input"]}, state_dir)
+    assert "exceeds 150" in violation
+    assert not (tmp_path / "oversized.txt").exists()

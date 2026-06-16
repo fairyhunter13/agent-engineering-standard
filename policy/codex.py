@@ -11,7 +11,7 @@ CODEX_HOOKS = {
     "hooks": {
         "PreToolUse": [
             {
-                "matcher": "Edit|Write",
+                "matcher": "Edit|Write|^apply_patch$",
                 "hooks": [{"type": "command", "command": "python3 {repo}/hooks/codex/pre_tool_use.py"}],
             },
             {
