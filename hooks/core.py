@@ -56,6 +56,32 @@ def evaluate_edit_guard(payload: dict) -> tuple[bool, str]:
     return True, ""
 
 
+def pre_tool_use_main() -> int:
+    payload = read_payload()
+    if not payload:
+        return emit_json(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": "Hook input was not valid JSON.",
+                }
+            }
+        )
+    allowed, reason = evaluate_edit_guard(payload)
+    if allowed:
+        return 0
+    return emit_json(
+        {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": reason,
+            }
+        }
+    )
+
+
 def load_state(load_json_fn, state_file: Path) -> dict:
     return load_json_fn(
         state_file,
@@ -109,6 +135,16 @@ def inspect_bash(state_dir: Path, state_file: Path, load_json_fn, dump_json_fn) 
     return 0
 
 
+def verification_state_main(argv: list[str], *, state_dir: Path, state_file: Path, load_json_fn, dump_json_fn) -> int:
+    if len(argv) < 2:
+        raise SystemExit("usage: verification_state.py mark-edit|inspect-bash")
+    if argv[1] == "mark-edit":
+        return mark_edit(state_dir, state_file, load_json_fn, dump_json_fn)
+    if argv[1] == "inspect-bash":
+        return inspect_bash(state_dir, state_file, load_json_fn, dump_json_fn)
+    raise SystemExit(f"unknown command: {argv[1]}")
+
+
 def scope_matches(data: dict, payload: dict) -> bool:
     stored_session = data.get("session_id")
     current_session = payload.get("session_id")
@@ -119,3 +155,27 @@ def scope_matches(data: dict, payload: dict) -> bool:
     if stored_cwd and current_cwd:
         return stored_cwd == current_cwd
     return True
+
+
+def stop_verify_main(*, agent: str, state_file: Path, load_json_fn) -> int:
+    payload = read_payload()
+    data = load_json_fn(state_file, {"pending_verification": False})
+    if not data.get("pending_verification"):
+        if agent == "claude":
+            print("{}")
+        return 0
+    if not scope_matches(data, payload):
+        if agent == "claude":
+            print("{}")
+        return 0
+    message = f"Verification is still pending for the last edit. Run a relevant check before claiming completion ({agent})."
+    if agent == "codex":
+        return emit_json({"decision": "block", "reason": message})
+    return emit_json(
+        {
+            "hookSpecificOutput": {
+                "hookEventName": "Stop",
+                "additionalContext": message,
+            }
+        }
+    )

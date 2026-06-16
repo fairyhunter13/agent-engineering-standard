@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from policy.claude import (
     CLAUDE_DOCTRINE_END,
     CLAUDE_DOCTRINE_START,
-    SHELL_LAUNCHER_END,
     SHELL_LAUNCHER_START,
     claude_profiles,
     format_doctrine,
@@ -16,61 +14,9 @@ from policy.claude import (
     skill_sources,
     skill_targets,
 )
-from policy.shared import HOME, dump_json, load_json, read_text, replace_or_append_block, write_text
+from policy.shared import HOME, read_text, replace_or_append_block, write_text
 from scripts.audit_bash_aliases import audit_file
-from scripts.install_common import diff_text, manage_skill_link, manage_state_dir, result
-
-
-def _ensure_doctrine(path: Path, label: str, apply: bool, dry_run: bool) -> object:
-    old = read_text(path)
-    new = replace_or_append_block(old, CLAUDE_DOCTRINE_START, CLAUDE_DOCTRINE_END, "\n".join(format_doctrine().splitlines()[1:-1]))
-    if old == new:
-        return result(label, "already_ok", "Doctrine block in sync", path)
-    if not apply:
-        return result(label, "missing", "Doctrine block missing or drifted", path, diff_text(old, new, str(path)))
-    write_text(path, new, dry_run=dry_run)
-    return result(label, "configured", "Doctrine block updated", path, diff_text(old, new, str(path)))
-
-
-def strip_managed_hooks(data: dict, repo_root: Path) -> dict:
-    commands = managed_hook_commands(repo_root)
-    hooks = dict(data.get("hooks", {}))
-    for event, entries in list(hooks.items()):
-        kept = []
-        for entry in entries:
-            entry_hooks = entry.get("hooks", [])
-            filtered = [hook for hook in entry_hooks if hook.get("command") not in commands]
-            if filtered:
-                kept.append({**entry, "hooks": filtered})
-            elif entry_hooks and filtered != entry_hooks:
-                continue
-            else:
-                kept.append(entry)
-        if kept:
-            hooks[event] = kept
-        else:
-            hooks.pop(event, None)
-    data["hooks"] = hooks
-    return data
-
-
-def merge_hooks(settings_path: Path, repo_root: Path, apply: bool, dry_run: bool) -> object:
-    label = f"{settings_path.parent.name}/settings.json hooks"
-    old_data = load_json(settings_path, {})
-    new_data = json.loads(json.dumps(old_data))
-    new_data = strip_managed_hooks(new_data, repo_root)
-    hooks = new_data.setdefault("hooks", {})
-    for event, entries in render_hooks(repo_root).items():
-        hooks.setdefault(event, [])
-        hooks[event].extend(entries)
-    old_text = dump_json(old_data)
-    new_text = dump_json(new_data)
-    if old_text == new_text:
-        return result(label, "already_ok", "Claude hooks in sync", settings_path)
-    if not apply:
-        return result(label, "missing", "Claude hooks missing or drifted", settings_path, diff_text(old_text, new_text, str(settings_path)))
-    write_text(settings_path, new_text, dry_run=dry_run)
-    return result(label, "configured", "Claude hooks merged", settings_path, diff_text(old_text, new_text, str(settings_path)))
+from scripts.install_common import ensure_managed_block, merge_hook_entries, manage_skill_link, manage_state_dir, result, diff_text
 
 
 def strip_legacy_shell_launchers(text: str) -> str:
@@ -122,8 +68,30 @@ def install_claude(*, apply: bool, dry_run: bool, include_shell: bool, profiles:
     profile_map = claude_profiles(home)
     selected_profiles = {name: profile_map[name] for name in profiles}
     for profile in selected_profiles.values():
-        results.append(_ensure_doctrine(profile.config_root / "CLAUDE.md", f"claude({profile.name})/CLAUDE.md", apply, dry_run))
-        results.append(merge_hooks(profile.config_root / "settings.json", repo_root, apply, dry_run))
+        results.append(
+            ensure_managed_block(
+                profile.config_root / "CLAUDE.md",
+                start=CLAUDE_DOCTRINE_START,
+                end=CLAUDE_DOCTRINE_END,
+                body="\n".join(format_doctrine().splitlines()[1:-1]),
+                label=f"claude({profile.name})/CLAUDE.md",
+                apply=apply,
+                dry_run=dry_run,
+            )
+        )
+        results.append(
+            merge_hook_entries(
+                profile.config_root / "settings.json",
+                rendered_hooks=render_hooks(repo_root),
+                strip_commands=managed_hook_commands(repo_root),
+                apply=apply,
+                dry_run=dry_run,
+                label=f"{profile.config_root.name}/settings.json hooks",
+                missing_message="Claude hooks missing or drifted",
+                configured_message="Claude hooks merged",
+                synced_message="Claude hooks in sync",
+            )
+        )
     results.append(manage_state_dir(apply, dry_run))
     sources = skill_sources(repo_root)
     for profile in selected_profiles.values():
