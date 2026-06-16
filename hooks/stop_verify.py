@@ -10,12 +10,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from policy.canonical import load_json, STATE_FILE  # noqa: E402
 
 
+def _codex_ok() -> int:
+    return 0
+
+
+def _claude_ok() -> int:
+    print("{}")
+    return 0
+
+
 def main(argv: list[str]) -> int:
     tool = argv[1] if len(argv) > 1 else "agent"
     data = load_json(STATE_FILE, {"pending_verification": False})
     if not data.get("pending_verification"):
-        print("{}")
-        return 0
+        return _codex_ok() if tool == "codex" else _claude_ok()
     candidate = data.get("last_verification_candidate")
     message = f"Verification is still pending for the last edit. Run a relevant check before claiming completion ({tool})."
     if candidate:
@@ -23,6 +31,17 @@ def main(argv: list[str]) -> int:
             "A possible verification command was seen, but the hook does not treat repository-specific checks as authoritative. "
             f"Confirm the relevant verification explicitly before claiming completion ({tool}). Last candidate: {candidate}"
         )
+    if tool == "codex":
+        print(
+            json.dumps(
+                {
+                    "continue": False,
+                    "stopReason": "verification pending",
+                    "systemMessage": message,
+                }
+            )
+        )
+        return 0
     print(
         json.dumps(
             {
