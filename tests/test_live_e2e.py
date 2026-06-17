@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -37,18 +38,23 @@ def _seed_repo(root: Path) -> None:
     )
 
 
-pytestmark = pytest.mark.skipif(
-    os.environ.get("AES_RUN_LIVE_E2E") != "1",
-    reason="set AES_RUN_LIVE_E2E=1 to run live Codex/Claude behavior tests",
-)
-
-
 def _codex_model() -> str:
     return os.environ.get("AES_CODEX_E2E_MODEL", "gpt-5.4-mini")
 
 
 def _claude_model() -> str:
     return os.environ.get("AES_CLAUDE_E2E_MODEL", "haiku")
+
+
+def test_live_cli_prerequisites() -> None:
+    assert shutil.which("codex"), "codex CLI must be installed for live e2e tests"
+    assert shutil.which("claude"), "claude CLI must be installed for live e2e tests"
+
+    codex_version = _run(["codex", "--version"], cwd=Path("/home/hafiz"))
+    assert codex_version.returncode == 0, codex_version.stdout + codex_version.stderr
+
+    claude_version = _run(["claude", "--version"], cwd=Path("/home/hafiz"))
+    assert claude_version.returncode == 0, claude_version.stdout + claude_version.stderr
 
 
 def test_live_global_doctrine_and_verified_edit_flow() -> None:

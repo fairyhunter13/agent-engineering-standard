@@ -23,3 +23,9 @@ python3 scripts/verify_policy.py
 python3 scripts/migrate_from_opencode_search_engine.py --apply
 python3 scripts/migrate_from_opencode_search_engine.py --apply-cleanup
 ```
+
+Live behavior tests require working `codex` and `claude` CLIs and fail if either setup is unavailable:
+
+```bash
+pytest -q tests/test_live_e2e.py
+```
