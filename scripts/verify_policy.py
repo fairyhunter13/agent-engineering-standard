@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from policy.codex import hooks_path  # noqa: E402
 from policy.shared import HOME, Result  # noqa: E402
+from scripts.audit_shell_aliases import verify_shell_aliases  # noqa: E402
 from scripts.verify_claude import verify_claude  # noqa: E402
 from scripts.verify_codex import verify_codex  # noqa: E402
 
@@ -19,6 +20,7 @@ def verify_policy(home: Path = HOME, repo_root: Path | None = None) -> list[Resu
     results: list[Result] = []
     results.extend(verify_claude(profiles={"main", "account1", "account2"}, home=home, repo_root=repo_root))
     results.extend(verify_codex(home=home, repo_root=repo_root))
+    results.append(verify_shell_aliases(home))
     results.append(Result("codex-hook-trust", "warning", "Codex hooks.json is installed, but manual trust review in /hooks is still required", str(hooks_path(home))))
     return results
 

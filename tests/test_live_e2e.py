@@ -9,6 +9,14 @@ from pathlib import Path
 
 import pytest
 
+DOCTRINE_DISCOVERY_PROMPT = (
+    "Reply with valid JSON only. Keys: doctrine_loaded, doctrine_lines, skills_seen. "
+    "For doctrine_lines, copy the loaded agent-engineering-standard doctrine lines verbatim, including the exact line "
+    "'- every line of code is a liability' if it is present. "
+    "For skills_seen, include exactly these available skills when present: lean-change, lean-implement, lean-review, repo-first-research, perf-investigation. "
+    "Do not edit files."
+)
+
 
 def _extract_json_blob(text: str) -> dict:
     stripped = text.strip()
@@ -76,7 +84,7 @@ def test_live_global_doctrine_and_verified_edit_flow() -> None:
                 "--ephemeral",
                 "-o",
                 str(codex_read),
-                "Reply with valid JSON only. Keys: doctrine_loaded, doctrine_lines, skills_seen. Include the loaded global doctrine lines and the available skills lean-change, lean-implement, lean-review, repo-first-research, perf-investigation if present. Do not edit files.",
+                DOCTRINE_DISCOVERY_PROMPT,
             ],
             cwd=Path("/home/hafiz"),
         )
@@ -100,7 +108,7 @@ def test_live_global_doctrine_and_verified_edit_flow() -> None:
                 _claude_model(),
                 "--output-format",
                 "json",
-                "Reply with valid JSON only. Keys: doctrine_loaded, doctrine_lines, skills_seen. Include the loaded global doctrine lines and the available skills lean-change, lean-implement, lean-review, repo-first-research, perf-investigation if present. Do not edit files.",
+                DOCTRINE_DISCOVERY_PROMPT,
             ],
             cwd=claude_root,
         )

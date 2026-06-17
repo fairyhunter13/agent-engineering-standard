@@ -7,7 +7,7 @@ from hooks.claude import stop_verify as claude_stop_verify
 from hooks.claude import verification_state as claude_verification_state
 from hooks.codex import stop_verify as codex_stop_verify
 from hooks.codex import verification_state as codex_verification_state
-from hooks.core import enforce_post_apply_patch, evaluate_bash_guard, evaluate_edit_guard, write_snapshot
+from hooks.core import enforce_post_apply_patch, evaluate_bash_guard, evaluate_edit_guard, snapshot_meta_path, write_snapshot
 
 
 def test_stop_verify_codex_blocks_with_current_contract(tmp_path: Path, capsys) -> None:
@@ -187,3 +187,18 @@ def test_post_apply_patch_reverts_oversized_new_file(tmp_path: Path) -> None:
     violation = enforce_post_apply_patch({"tool_name": "apply_patch", "session_id": "sess-1", "cwd": str(tmp_path), "tool_input": payload["tool_input"]}, state_dir)
     assert "exceeds 150" in violation
     assert not (tmp_path / "oversized.txt").exists()
+
+
+def test_post_apply_patch_ignores_corrupt_snapshot_metadata(tmp_path: Path) -> None:
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
+    snapshot_meta_path(state_dir, "sess-1").parent.mkdir(parents=True)
+    snapshot_meta_path(state_dir, "sess-1").write_text("{broken")
+    payload = {
+        "tool_name": "apply_patch",
+        "session_id": "sess-1",
+        "cwd": str(tmp_path),
+        "tool_input": {"command": "*** Begin Patch\n*** Add File: notes.txt\n+1\n*** End Patch\n"},
+    }
+
+    assert enforce_post_apply_patch(payload, state_dir) == ""

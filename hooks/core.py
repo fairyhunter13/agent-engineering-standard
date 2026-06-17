@@ -106,12 +106,29 @@ def snapshot_meta_path(state_dir: Path, baseline_key: str) -> Path:
     return snapshot_meta_dir(state_dir) / f"{baseline_key}.json"
 
 
+def load_snapshot_meta(meta_path: Path) -> dict:
+    if not meta_path.exists():
+        return {"entries": {}}
+    try:
+        data = json.loads(meta_path.read_text())
+    except Exception:
+        return {"entries": {}}
+    return data if isinstance(data.get("entries"), dict) else {"entries": {}}
+
+
+def save_snapshot_meta(meta_path: Path, data: dict) -> None:
+    meta_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = meta_path.with_suffix(meta_path.suffix + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2))
+    tmp.replace(meta_path)
+
+
 def write_snapshot(state_dir: Path, payload: dict) -> None:
     if payload.get("tool_name") != "apply_patch":
         return
     baseline_key = session_baseline_key(payload)
     meta_path = snapshot_meta_path(state_dir, baseline_key)
-    data = json.loads(meta_path.read_text()) if meta_path.exists() else {"entries": {}}
+    data = load_snapshot_meta(meta_path)
     cwd = payload.get("cwd")
     changed = False
     for stat in patch_stats(payload.get("tool_input", {}).get("command") or ""):
@@ -127,8 +144,7 @@ def write_snapshot(state_dir: Path, payload: dict) -> None:
         data["entries"][stat.path] = entry
         changed = True
     if changed:
-        meta_path.parent.mkdir(parents=True, exist_ok=True)
-        meta_path.write_text(json.dumps(data, indent=2))
+        save_snapshot_meta(meta_path, data)
 
 
 def restore_snapshot_entry(state_dir: Path, entry: dict) -> None:
@@ -146,7 +162,7 @@ def cleanup_snapshot(state_dir: Path, baseline_key: str, *, paths: list[str] | N
     meta_path = snapshot_meta_path(state_dir, baseline_key)
     if not meta_path.exists():
         return
-    data = json.loads(meta_path.read_text())
+    data = load_snapshot_meta(meta_path)
     entries = data.get("entries", {})
     selected = list(entries) if paths is None else [path for path in paths if path in entries]
     for path in selected:
@@ -155,7 +171,7 @@ def cleanup_snapshot(state_dir: Path, baseline_key: str, *, paths: list[str] | N
             (snapshot_meta_dir(state_dir) / snapshot).unlink(missing_ok=True)
         entries.pop(path, None)
     if entries:
-        meta_path.write_text(json.dumps({"entries": entries}, indent=2))
+        save_snapshot_meta(meta_path, {"entries": entries})
     else:
         meta_path.unlink(missing_ok=True)
 
@@ -171,7 +187,7 @@ def enforce_post_apply_patch(payload: dict, state_dir: Path) -> str:
     meta_path = snapshot_meta_path(state_dir, baseline_key)
     if not meta_path.exists():
         return ""
-    entries = json.loads(meta_path.read_text()).get("entries", {})
+    entries = load_snapshot_meta(meta_path).get("entries", {})
     touched = []
     for stat in patch_stats(payload.get("tool_input", {}).get("command") or ""):
         if stat.path not in touched:

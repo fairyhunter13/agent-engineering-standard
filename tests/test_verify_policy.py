@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from scripts.install_policy import run_install
+from scripts.audit_shell_aliases import audit_text, verify_shell_aliases
 from scripts.verify_policy import verify_policy
 
 
@@ -41,4 +42,34 @@ OSE
     results = verify_policy(home=home, repo_root=repo_root)
     failures = [result for result in results if result.status in {"missing", "error"}]
     assert not failures
+    assert any(result.tool == "shell-alias-audit" and result.status == "already_ok" for result in results)
     assert any(result.tool == "codex-hook-trust" and result.status == "warning" for result in results)
+
+
+def test_shell_alias_audit_is_read_only_and_reports_stale_aes_block(tmp_path: Path) -> None:
+    bash_aliases = tmp_path / ".bash_aliases"
+    bash_aliases.write_text(
+        "# >>> agent-engineering-standard:claude-launchers >>>\n"
+        "function claude() { command claude \"$@\"; }\n"
+        "# <<< agent-engineering-standard:claude-launchers <<<\n"
+    )
+
+    result = verify_shell_aliases(tmp_path)
+
+    assert result.status == "warning"
+    assert "no longer owns shell" in result.message
+    assert bash_aliases.read_text().startswith("# >>> agent-engineering-standard")
+
+
+def test_shell_alias_audit_detects_external_launchers_without_warning() -> None:
+    findings = audit_text(
+        """
+function claude() {
+  command claude "$@"
+}
+alias claude1="CLAUDE_CONFIG_DIR=~/.claude-account1 claude"
+"""
+    )
+
+    assert findings["aes_managed_block_present"] is False
+    assert len(findings["claude_launcher_definitions"]) == 2
