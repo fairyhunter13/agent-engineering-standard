@@ -1,6 +1,6 @@
 # agent-engineering-standard
 
-Global doctrine, hooks, skills, and Claude launcher management for Claude and Codex.
+Global doctrine, hooks, and skills for Claude and Codex.
 
 This repo owns the generic engineering standard:
 - doctrine blocks for `~/.claude/*/CLAUDE.md` and `~/.codex/AGENTS.md`
@@ -18,7 +18,7 @@ Primary commands:
 
 ```bash
 python3 scripts/install_policy.py --check
-python3 scripts/install_policy.py --apply --adopt-legacy-shell-profiles
+python3 scripts/install_policy.py --apply
 python3 scripts/verify_policy.py
 python3 scripts/migrate_from_opencode_search_engine.py --apply
 python3 scripts/migrate_from_opencode_search_engine.py --apply-cleanup

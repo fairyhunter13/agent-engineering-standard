@@ -46,7 +46,6 @@ OSE
         dry_run=False,
         targets={"claude", "codex", "skills", "hooks"},
         profiles={"main", "account1", "account2"},
-        adopt_legacy_shell_profiles=False,
         home=home,
         repo_root=repo_root,
     )

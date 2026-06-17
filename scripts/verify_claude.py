@@ -10,9 +10,7 @@ def verify_claude(*, profiles: set[str], home: Path = HOME, repo_root: Path | No
     return install_claude(
         apply=False,
         dry_run=False,
-        include_shell=False,
         profiles=profiles,
-        adopt_legacy_shell_profiles=False,
         home=home,
         repo_root=repo_root,
     )

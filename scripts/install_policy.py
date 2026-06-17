@@ -12,7 +12,7 @@ from policy.shared import HOME, Result  # noqa: E402
 from scripts.install_claude import install_claude  # noqa: E402
 from scripts.install_codex import install_codex  # noqa: E402
 
-ALL_TARGETS = {"claude", "codex", "shell", "skills", "hooks"}
+ALL_TARGETS = {"claude", "codex", "skills", "hooks"}
 DEFAULT_TARGETS = {"claude", "codex", "skills", "hooks"}
 
 
@@ -22,13 +22,12 @@ def run_install(
     dry_run: bool,
     targets: set[str],
     profiles: set[str],
-    adopt_legacy_shell_profiles: bool,
     home: Path = HOME,
     repo_root: Path | None = None,
 ) -> list[Result]:
     repo_root = (repo_root or Path(__file__).resolve().parents[1]).resolve()
     results: list[Result] = []
-    claude_targets = targets & {"claude", "skills", "hooks", "shell"}
+    claude_targets = targets & {"claude", "skills", "hooks"}
     codex_targets = targets & {"codex", "skills", "hooks"}
 
     if claude_targets:
@@ -36,9 +35,7 @@ def run_install(
             install_claude(
                 apply=apply,
                 dry_run=dry_run,
-                include_shell="shell" in targets,
                 profiles=profiles,
-                adopt_legacy_shell_profiles=adopt_legacy_shell_profiles,
                 home=home,
                 repo_root=repo_root,
             )
@@ -80,14 +77,12 @@ def main() -> int:
     parser.add_argument("--json", dest="json_out", action="store_true")
     parser.add_argument("--targets", type=parse_targets, default=set(DEFAULT_TARGETS))
     parser.add_argument("--profiles", type=parse_profiles, default={"main", "account1", "account2"})
-    parser.add_argument("--adopt-legacy-shell-profiles", action="store_true")
     args = parser.parse_args()
     results = run_install(
         apply=args.apply,
         dry_run=args.dry_run,
         targets=args.targets,
         profiles=args.profiles,
-        adopt_legacy_shell_profiles=args.adopt_legacy_shell_profiles,
     )
     if args.json_out:
         print(json.dumps([result.__dict__ for result in results], indent=2))

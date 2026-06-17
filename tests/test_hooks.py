@@ -123,6 +123,24 @@ def test_claude_and_codex_verification_state_share_logic(tmp_path: Path, monkeyp
     assert state["session_id"] == "sess-2"
 
 
+def test_verification_state_recovers_corrupt_state_file(tmp_path: Path, monkeypatch, capsys) -> None:
+    state_dir = tmp_path / "state"
+    state_file = state_dir / "verification-state.json"
+    state_dir.mkdir()
+    state_file.write_text('{"pending_verification": false}\n{"broken": true}\n')
+    monkeypatch.setattr(claude_verification_state, "STATE_DIR", state_dir)
+    monkeypatch.setattr(claude_verification_state, "STATE_FILE", state_file)
+    monkeypatch.setattr(
+        "sys.stdin",
+        type("FakeStdin", (), {"read": lambda self: json.dumps({"tool_input": {"command": "pytest -q"}})})(),
+    )
+
+    assert claude_verification_state.main(["verification_state.py", "inspect-bash"]) == 0
+    capsys.readouterr()
+    state = json.loads(state_file.read_text())
+    assert state["pending_verification"] is False
+
+
 def test_bash_guard_blocks_shell_write_to_source_like_file() -> None:
     allowed, reason = evaluate_bash_guard({"tool_input": {"command": "cat <<'EOF' > oversized.txt\n1\nEOF"}})
     assert allowed is False
@@ -131,6 +149,12 @@ def test_bash_guard_blocks_shell_write_to_source_like_file() -> None:
 
 def test_bash_guard_allows_read_only_command() -> None:
     allowed, reason = evaluate_bash_guard({"tool_input": {"command": "pytest -q"}})
+    assert allowed is True
+    assert reason == ""
+
+
+def test_bash_guard_allows_read_only_python_heredoc() -> None:
+    allowed, reason = evaluate_bash_guard({"tool_input": {"command": "python3 - <<'PY'\nprint('ok')\nPY"}})
     assert allowed is True
     assert reason == ""
 

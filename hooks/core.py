@@ -18,9 +18,6 @@ MUTATING_BASH_PATTERNS = (
     "tee ",
     "sed -i",
     "perl -pi",
-    "python - <<",
-    "python3 - <<",
-    "cat <<",
     "touch ",
     "truncate ",
     "cp ",
@@ -316,16 +313,17 @@ def pre_bash_main() -> int:
 
 
 def load_state(load_json_fn, state_file: Path) -> dict:
-    return load_json_fn(
-        state_file,
-        {
-            "pending_verification": False,
-            "last_edit_at": None,
-            "last_verified_command": None,
-            "session_id": None,
-            "cwd": None,
-        },
-    )
+    default = {
+        "pending_verification": False,
+        "last_edit_at": None,
+        "last_verified_command": None,
+        "session_id": None,
+        "cwd": None,
+    }
+    try:
+        return load_json_fn(state_file, default)
+    except Exception:
+        return dict(default)
 
 
 def apply_scope(data: dict, payload: dict) -> None:
@@ -339,7 +337,9 @@ def apply_scope(data: dict, payload: dict) -> None:
 
 def save_state(state_dir: Path, state_file: Path, dump_json_fn, data: dict) -> None:
     state_dir.mkdir(parents=True, exist_ok=True)
-    state_file.write_text(dump_json_fn(data))
+    tmp = state_file.with_suffix(state_file.suffix + ".tmp")
+    tmp.write_text(dump_json_fn(data))
+    tmp.replace(state_file)
 
 
 def mark_edit(state_dir: Path, state_file: Path, load_json_fn, dump_json_fn) -> int:

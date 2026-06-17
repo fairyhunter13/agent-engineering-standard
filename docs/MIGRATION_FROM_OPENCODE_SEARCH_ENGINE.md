@@ -4,7 +4,7 @@
 
 Sequence:
 
-1. Run `python3 scripts/install_policy.py --apply --adopt-legacy-shell-profiles`.
+1. Run `python3 scripts/install_policy.py --apply`.
 2. Run `python3 scripts/verify_policy.py`.
 3. Run `python3 scripts/migrate_from_opencode_search_engine.py --apply-cleanup`.
 

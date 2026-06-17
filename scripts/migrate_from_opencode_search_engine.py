@@ -72,7 +72,6 @@ def main() -> int:
             dry_run=False,
             targets={"claude", "codex", "skills", "hooks"},
             profiles={"main", "account1", "account2"},
-            adopt_legacy_shell_profiles=True,
         )
         ok = _new_owner_live()
         print(json.dumps({"installed": [result.__dict__ for result in results], "new_owner_live": ok}, indent=2))

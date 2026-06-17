@@ -7,22 +7,6 @@ from policy.shared import DOCTRINE_BODY, HOME, REPO_ROOT, SKILL_NAMES
 
 CLAUDE_DOCTRINE_START = "<!-- >>> agent-engineering-standard:doctrine >>> -->"
 CLAUDE_DOCTRINE_END = "<!-- <<< agent-engineering-standard:doctrine <<< -->"
-SHELL_LAUNCHER_START = "# >>> agent-engineering-standard:claude-launchers >>>"
-SHELL_LAUNCHER_END = "# <<< agent-engineering-standard:claude-launchers <<<"
-
-CLAUDE_LAUNCHER_COMMENT = """# Claude launchers (managed by agent-engineering-standard)
-# Preserves the current shared-history multi-profile model.
-function claude() {
-    command claude --model "opusplan" --dangerously-skip-permissions "$@"
-}
-
-function claude1() {
-    CLAUDE_CONFIG_DIR="$HOME/.claude-account1" claude "$@"
-}
-
-function claude2() {
-    CLAUDE_CONFIG_DIR="$HOME/.claude-account2" claude "$@"
-}"""
 
 CLAUDE_SETTINGS_HOOKS = {
     "PreToolUse": [
@@ -66,14 +50,6 @@ def claude_profiles(home: Path | None = None) -> dict[str, ClaudeProfile]:
 
 def format_doctrine() -> str:
     return f"{CLAUDE_DOCTRINE_START}\n{DOCTRINE_BODY}\n{CLAUDE_DOCTRINE_END}\n"
-
-
-def format_shell_launcher_block() -> str:
-    return f"{SHELL_LAUNCHER_START}\n{CLAUDE_LAUNCHER_COMMENT}\n{SHELL_LAUNCHER_END}\n"
-
-
-def shell_launcher_body() -> str:
-    return CLAUDE_LAUNCHER_COMMENT
 
 
 def render_hooks(repo_root: Path | None = None) -> dict:

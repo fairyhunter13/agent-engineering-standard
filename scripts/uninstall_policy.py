@@ -11,18 +11,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from policy.claude import (
     CLAUDE_DOCTRINE_END,
     CLAUDE_DOCTRINE_START,
-    SHELL_LAUNCHER_END,
-    SHELL_LAUNCHER_START,
     claude_profiles,
     managed_hook_commands as claude_managed_hook_commands,
+    skill_sources as claude_skill_sources,
+    skill_targets as claude_skill_targets,
 )
-from policy.codex import CODEX_DOCTRINE_END, CODEX_DOCTRINE_START, hooks_path as codex_hooks_path
+from policy.codex import CODEX_DOCTRINE_END, CODEX_DOCTRINE_START, hooks_path as codex_hooks_path, skill_sources as codex_skill_sources, skill_targets as codex_skill_targets
 from policy.shared import HOME, STATE_DIR, dump_json, load_json, remove_block, write_text
 
 
 def uninstall_claude(*, dry_run: bool) -> None:
     repo_root = Path(__file__).resolve().parents[1]
     commands = claude_managed_hook_commands(repo_root)
+    sources = claude_skill_sources(repo_root)
     for profile in claude_profiles().values():
         path = profile.config_root / "CLAUDE.md"
         write_text(path, remove_block(path.read_text() if path.exists() else "", CLAUDE_DOCTRINE_START, CLAUDE_DOCTRINE_END), dry_run=dry_run)
@@ -41,13 +42,9 @@ def uninstall_claude(*, dry_run: bool) -> None:
                 hooks.pop(event, None)
         data["hooks"] = hooks
         write_text(settings_path, dump_json(data), dry_run=dry_run)
-        skills_dir = profile.config_root / "skills"
-        if skills_dir.exists():
-            for target in skills_dir.glob("*"):
-                if target.is_symlink() and not dry_run:
-                    target.unlink()
-    bash_aliases = HOME / ".bash_aliases"
-    write_text(bash_aliases, remove_block(bash_aliases.read_text() if bash_aliases.exists() else "", SHELL_LAUNCHER_START, SHELL_LAUNCHER_END), dry_run=dry_run)
+        for name, target in claude_skill_targets(profile).items():
+            if target.is_symlink() and target.resolve() == sources[name].resolve() and not dry_run:
+                target.unlink()
 
 
 def uninstall_codex(*, dry_run: bool) -> None:
@@ -56,11 +53,10 @@ def uninstall_codex(*, dry_run: bool) -> None:
     hooks_path = codex_hooks_path(HOME)
     if hooks_path.exists() and not dry_run:
         hooks_path.unlink()
-    skills_dir = HOME / ".agents" / "skills"
-    if skills_dir.exists():
-        for target in skills_dir.glob("*"):
-            if target.is_symlink() and not dry_run:
-                target.unlink()
+    sources = codex_skill_sources()
+    for name, target in codex_skill_targets().items():
+        if target.is_symlink() and target.resolve() == sources[name].resolve() and not dry_run:
+            target.unlink()
 
 
 def main() -> int:

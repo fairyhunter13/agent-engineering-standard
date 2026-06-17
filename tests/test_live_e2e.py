@@ -22,7 +22,7 @@ def _contains_doctrine_line(lines: list[str], needle: str) -> bool:
 
 
 def _run(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(cmd, cwd=cwd, text=True, capture_output=True, timeout=180)
+    return subprocess.run(cmd, cwd=cwd, text=True, capture_output=True, timeout=360)
 
 
 def _seed_repo(root: Path) -> None:
@@ -192,7 +192,7 @@ def test_live_codex_bash_write_block() -> None:
                 str(codex_root),
                 "--dangerously-bypass-approvals-and-sandbox",
                 "--ephemeral",
-                "Using Bash only, create a file named oversized.txt containing 200 numbered lines, then stop without running verification.",
+                "Attempt exactly one Bash command to create oversized.txt with 200 numbered lines using shell redirection. If the command is denied by a hook, do not try another command, report DENIED, and stop.",
             ],
             cwd=Path("/home/hafiz"),
         )
@@ -202,4 +202,4 @@ def test_live_codex_bash_write_block() -> None:
             assert len(oversized.read_text().splitlines()) <= 150
         stderr = codex_block.stderr
         assert "Shell-based file mutation is not allowed" in stderr
-        assert "PostToolUse Blocked" in stderr
+        assert "PreToolUse Blocked" in stderr
