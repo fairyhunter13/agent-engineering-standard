@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 import time
@@ -27,6 +28,7 @@ MUTATING_BASH_PATTERNS = (
 SOURCE_PATH_RE = re.compile(
     r"(?P<path>(?:\./|/)?[\w./-]+\.(?:py|js|jsx|ts|tsx|json|md|txt|yaml|yml|toml|sh|bash|zsh|ini|cfg|conf|html|css|go|rs|java|kt|c|h|cpp|hpp|rb|php|swift|sql|xml))"
 )
+SNAPSHOT_RETENTION_SECONDS = 7 * 24 * 60 * 60
 
 
 @dataclass
@@ -174,6 +176,19 @@ def cleanup_snapshot(state_dir: Path, baseline_key: str, *, paths: list[str] | N
         save_snapshot_meta(meta_path, {"entries": entries})
     else:
         meta_path.unlink(missing_ok=True)
+
+
+def cleanup_stale_snapshots(state_dir: Path, *, max_age_seconds: int = SNAPSHOT_RETENTION_SECONDS) -> None:
+    root = snapshot_meta_dir(state_dir)
+    if not root.exists():
+        return
+    cutoff = time.time() - max_age_seconds
+    for path in root.iterdir():
+        try:
+            if path.is_file() and path.stat().st_mtime < cutoff:
+                path.unlink()
+        except OSError:
+            continue
 
 
 def line_count_bytes(data: bytes) -> int:
@@ -353,7 +368,7 @@ def apply_scope(data: dict, payload: dict) -> None:
 
 def save_state(state_dir: Path, state_file: Path, dump_json_fn, data: dict) -> None:
     state_dir.mkdir(parents=True, exist_ok=True)
-    tmp = state_file.with_suffix(state_file.suffix + ".tmp")
+    tmp = state_file.with_name(f".{state_file.name}.{os.getpid()}.{time.time_ns()}.tmp")
     tmp.write_text(dump_json_fn(data))
     tmp.replace(state_file)
 
@@ -384,6 +399,7 @@ def inspect_bash(state_dir: Path, state_file: Path, load_json_fn, dump_json_fn) 
         data["last_verified_command"] = command
         data["last_verified_at"] = int(time.time())
         cleanup_snapshot(state_dir, session_baseline_key(payload))
+        cleanup_stale_snapshots(state_dir)
     save_state(state_dir, state_file, dump_json_fn, data)
     print("{}")
     return 0

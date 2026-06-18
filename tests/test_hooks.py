@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 from hooks.claude import stop_verify as claude_stop_verify
@@ -202,3 +205,34 @@ def test_post_apply_patch_ignores_corrupt_snapshot_metadata(tmp_path: Path) -> N
     }
 
     assert enforce_post_apply_patch(payload, state_dir) == ""
+
+
+def test_post_tool_state_writes_tolerate_concurrent_processes(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    env = dict(os.environ)
+    env["HOME"] = str(tmp_path)
+    payload = json.dumps(
+        {
+            "session_id": "sess-1",
+            "cwd": str(tmp_path),
+            "tool_name": "Write",
+            "tool_input": {"file_path": str(tmp_path / "notes.txt"), "content": "1\n"},
+        }
+    )
+    procs = [
+        subprocess.Popen(
+            [sys.executable, str(repo_root / "hooks/claude/verification_state.py"), "mark-edit"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+        )
+        for _ in range(20)
+    ]
+
+    results = [proc.communicate(payload, timeout=10) + (proc.returncode,) for proc in procs]
+    failures = [stderr for _stdout, stderr, returncode in results if returncode != 0]
+    assert not failures
+    state_file = tmp_path / ".local/state/agent-engineering-standard/verification-state.json"
+    assert json.loads(state_file.read_text())["pending_verification"] is True

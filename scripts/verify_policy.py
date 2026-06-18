@@ -3,11 +3,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from policy.claude import render_hooks as render_claude_hooks  # noqa: E402
+from policy.codex import render_hooks as render_codex_hooks  # noqa: E402
 from policy.codex import hooks_path  # noqa: E402
 from policy.shared import HOME, Result  # noqa: E402
 from scripts.audit_shell_aliases import verify_shell_aliases  # noqa: E402
@@ -15,13 +20,44 @@ from scripts.verify_claude import verify_claude  # noqa: E402
 from scripts.verify_codex import verify_codex  # noqa: E402
 
 
+def _hook_payload(event: str, matcher: str, agent: str) -> dict:
+    base = {"session_id": f"verify-{agent}", "cwd": "/tmp"}
+    if event == "Stop":
+        return base
+    if "Bash" in matcher:
+        return {**base, "tool_name": "Bash", "tool_input": {"command": 'AGENT_ENGINEERING_STANDARD_VERIFIED=1 python3 -c "print(0)"'}}
+    if agent == "codex":
+        patch = "*** Begin Patch\n*** Add File: verify.txt\n+1\n*** End Patch\n"
+        return {**base, "tool_name": "apply_patch", "tool_input": {"command": patch}}
+    return {**base, "tool_name": "Write", "tool_input": {"file_path": "/tmp/verify.txt", "content": "1\n"}}
+
+
+def verify_hook_execution(repo_root: Path) -> Result:
+    failures = []
+    with tempfile.TemporaryDirectory(prefix="aes-hook-verify-") as tmp_home:
+        env = dict(os.environ, HOME=tmp_home)
+        surfaces = (("codex", render_codex_hooks(repo_root)["hooks"]), ("claude", render_claude_hooks(repo_root)))
+        for agent, hooks in surfaces:
+            for event, entries in hooks.items():
+                for entry in entries:
+                    matcher = entry.get("matcher", "")
+                    for hook in entry.get("hooks", []):
+                        proc = subprocess.run(hook["command"], input=json.dumps(_hook_payload(event, matcher, agent)), text=True, shell=True, capture_output=True, timeout=15, env=env)
+                        if proc.returncode:
+                            failures.append(f"{agent}/{event}/{matcher or '*'} exited {proc.returncode}")
+    if failures:
+        return Result("hook-execution", "error", "; ".join(failures))
+    return Result("hook-execution", "already_ok", "Rendered hook commands execute successfully")
+
+
 def verify_policy(home: Path = HOME, repo_root: Path | None = None) -> list[Result]:
     repo_root = (repo_root or Path(__file__).resolve().parents[1]).resolve()
     results: list[Result] = []
     results.extend(verify_claude(profiles={"main", "account1", "account2"}, home=home, repo_root=repo_root))
     results.extend(verify_codex(home=home, repo_root=repo_root))
+    results.append(verify_hook_execution(repo_root))
     results.append(verify_shell_aliases(home))
-    results.append(Result("codex-hook-trust", "warning", "Codex hooks.json is installed, but manual trust review in /hooks is still required", str(hooks_path(home))))
+    results.append(Result("codex-hook-trust", "warning", "Codex hook commands execute; interactive sessions may still require CLI-managed trust review in /hooks", str(hooks_path(home))))
     return results
 
 

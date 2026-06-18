@@ -5,7 +5,7 @@ from pathlib import Path
 
 from scripts.install_policy import run_install
 from scripts.audit_shell_aliases import audit_text, verify_shell_aliases
-from scripts.verify_policy import verify_policy
+from scripts.verify_policy import verify_hook_execution, verify_policy
 
 
 def _write(path: Path, content: str) -> None:
@@ -73,3 +73,9 @@ alias claude1="CLAUDE_CONFIG_DIR=~/.claude-account1 claude"
 
     assert findings["aes_managed_block_present"] is False
     assert len(findings["claude_launcher_definitions"]) == 2
+
+
+def test_verify_hook_execution_runs_rendered_commands() -> None:
+    result = verify_hook_execution(Path(__file__).resolve().parents[1])
+
+    assert result.status == "already_ok"
