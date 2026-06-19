@@ -67,7 +67,7 @@ def test_stop_verify_codex_allows_silently_when_not_pending(tmp_path: Path, caps
     assert capsys.readouterr().out == ""
 
 
-def test_verification_state_clears_after_successful_verification_command(tmp_path: Path, monkeypatch, capsys) -> None:
+def test_verification_state_clears_after_verification_command(tmp_path: Path, monkeypatch, capsys) -> None:
     state_dir = tmp_path / "state"
     state_file = state_dir / "verification-state.json"
     monkeypatch.setattr(codex_verification_state, "STATE_DIR", state_dir)
@@ -119,6 +119,60 @@ def test_verification_state_clears_after_successful_verification_command(tmp_pat
     state = json.loads(state_file.read_text())
     assert state["pending_verification"] is False
     assert state["last_verified_command"] == "python3 scripts/verify_policy.py"
+
+
+def test_verification_state_clears_when_tool_response_absent(tmp_path: Path, monkeypatch, capsys) -> None:
+    """Codex may omit tool_response; verification command should still clear pending."""
+    state_dir = tmp_path / "state"
+    state_file = state_dir / "verification-state.json"
+    monkeypatch.setattr(codex_verification_state, "STATE_DIR", state_dir)
+    monkeypatch.setattr(codex_verification_state, "STATE_FILE", state_file)
+
+    monkeypatch.setattr(
+        "sys.stdin",
+        type("FakeStdin", (), {"read": lambda self: json.dumps({"session_id": "sess-2", "cwd": "/repo"})})(),
+    )
+    assert codex_verification_state.main(["verification_state.py", "mark-edit"]) == 0
+    capsys.readouterr()
+
+    monkeypatch.setattr(
+        "sys.stdin",
+        type("FakeStdin", (), {"read": lambda self: json.dumps({"tool_input": {"command": "codex doctor --summary"}})})(),
+    )
+    assert codex_verification_state.main(["verification_state.py", "inspect-bash"]) == 0
+    capsys.readouterr()
+    state = json.loads(state_file.read_text())
+    assert state["pending_verification"] is False
+    assert state["last_verified_command"] == "codex doctor --summary"
+
+
+def test_verification_state_stays_pending_on_explicit_failure(tmp_path: Path, monkeypatch, capsys) -> None:
+    """A verification command with non-zero exit code must not clear pending."""
+    state_dir = tmp_path / "state"
+    state_file = state_dir / "verification-state.json"
+    monkeypatch.setattr(codex_verification_state, "STATE_DIR", state_dir)
+    monkeypatch.setattr(codex_verification_state, "STATE_FILE", state_file)
+
+    monkeypatch.setattr(
+        "sys.stdin",
+        type("FakeStdin", (), {"read": lambda self: json.dumps({"session_id": "sess-3", "cwd": "/repo"})})(),
+    )
+    assert codex_verification_state.main(["verification_state.py", "mark-edit"]) == 0
+    capsys.readouterr()
+
+    monkeypatch.setattr(
+        "sys.stdin",
+        type(
+            "FakeStdin",
+            (),
+            {"read": lambda self: json.dumps({"tool_input": {"command": "python3 scripts/verify_policy.py"}, "tool_response": "Process exited with code 1"})},
+        )(),
+    )
+    assert codex_verification_state.main(["verification_state.py", "inspect-bash"]) == 0
+    capsys.readouterr()
+    state = json.loads(state_file.read_text())
+    assert state["pending_verification"] is True
+    assert state.get("last_verified_command") is None
 
 
 def test_claude_and_codex_verification_state_share_logic(tmp_path: Path, monkeypatch, capsys) -> None:

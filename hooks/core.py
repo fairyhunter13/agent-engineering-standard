@@ -412,19 +412,23 @@ def bash_verification_passed(command: str, response) -> bool:
         return True
     if not VERIFICATION_COMMAND_RE.search(lowered):
         return False
-    return response_succeeded(response)
+    return not _response_failed(response)
 
 
-def response_succeeded(response) -> bool:
+def _response_failed(response) -> bool:
+    """True only when there is definitive evidence the command exited non-zero."""
+    if response is None:
+        return False
     if isinstance(response, dict):
         for key in ("exit_code", "exitCode", "returncode", "return_code"):
-            if response.get(key) == 0:
+            val = response.get(key)
+            if isinstance(val, int) and val != 0:
                 return True
-        return any(response_succeeded(value) for value in response.values())
+        return any(_response_failed(v) for v in response.values())
     if isinstance(response, list):
-        return any(response_succeeded(value) for value in response)
+        return any(_response_failed(v) for v in response)
     if isinstance(response, str):
-        return re.search(r"(?im)^(?:process )?exited with code 0$", response) is not None
+        return bool(re.search(r"(?im)^(?:process )?exited with code [1-9]\d*$", response))
     return False
 
 
