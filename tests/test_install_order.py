@@ -72,6 +72,11 @@ def _assert_aes_and_ose_both_present(home: Path) -> None:
         ]
         assert any("/hooks/claude/pre_tool_use.py" in command for command in commands)
 
+    # OSE manages ~/.codex surfaces; AES must not overwrite or delete them
+    agents = (home / ".codex" / "AGENTS.md").read_text()
+    assert SENTINEL_AGENTS_START in agents
+    assert CANONICAL_MCP_URL in (home / ".codex" / "config.toml").read_text()
+
 
 def _seed_blank_home(home: Path) -> None:
     for root in (home / ".claude", home / ".claude-account1", home / ".claude-account2"):
