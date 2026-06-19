@@ -12,6 +12,7 @@ from pathlib import Path
 PROTECTED_MARKERS = ("/secrets/", "/.local/share/opencode-search/", "/GoogleDrive/", "/OneDrive/")
 UNGATED_MARKERS = ("/.claude/", "/.codex/", "/.agents/skills/", "/.local/state/agent-engineering-standard/")
 VERIFICATION_MARKER = "agent_engineering_standard_verified=1"
+VERIFICATION_COMMAND_RE = re.compile(r"(?:check|doctor|json\.tool|lint|test|verify)")
 MUTATING_BASH_PATTERNS = (
     " >",
     ">>",
@@ -394,7 +395,7 @@ def inspect_bash(state_dir: Path, state_file: Path, load_json_fn, dump_json_fn) 
     command = tool_input.get("command") or tool_input.get("cmd") or tool_input.get("input") or ""
     data = load_state(load_json_fn, state_file)
     apply_scope(data, payload)
-    if VERIFICATION_MARKER in command.lower():
+    if bash_verification_passed(command, payload.get("tool_response")):
         data["pending_verification"] = False
         data["last_verified_command"] = command
         data["last_verified_at"] = int(time.time())
@@ -403,6 +404,28 @@ def inspect_bash(state_dir: Path, state_file: Path, load_json_fn, dump_json_fn) 
     save_state(state_dir, state_file, dump_json_fn, data)
     print("{}")
     return 0
+
+
+def bash_verification_passed(command: str, response) -> bool:
+    lowered = command.lower()
+    if VERIFICATION_MARKER in lowered:
+        return True
+    if not VERIFICATION_COMMAND_RE.search(lowered):
+        return False
+    return response_succeeded(response)
+
+
+def response_succeeded(response) -> bool:
+    if isinstance(response, dict):
+        for key in ("exit_code", "exitCode", "returncode", "return_code"):
+            if response.get(key) == 0:
+                return True
+        return any(response_succeeded(value) for value in response.values())
+    if isinstance(response, list):
+        return any(response_succeeded(value) for value in response)
+    if isinstance(response, str):
+        return re.search(r"(?im)^(?:process )?exited with code 0$", response) is not None
+    return False
 
 
 def verification_state_main(argv: list[str], *, state_dir: Path, state_file: Path, load_json_fn, dump_json_fn) -> int:

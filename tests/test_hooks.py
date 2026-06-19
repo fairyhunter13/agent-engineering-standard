@@ -67,7 +67,7 @@ def test_stop_verify_codex_allows_silently_when_not_pending(tmp_path: Path, caps
     assert capsys.readouterr().out == ""
 
 
-def test_verification_state_requires_explicit_marker(tmp_path: Path, monkeypatch, capsys) -> None:
+def test_verification_state_clears_after_successful_verification_command(tmp_path: Path, monkeypatch, capsys) -> None:
     state_dir = tmp_path / "state"
     state_file = state_dir / "verification-state.json"
     monkeypatch.setattr(codex_verification_state, "STATE_DIR", state_dir)
@@ -86,7 +86,15 @@ def test_verification_state_requires_explicit_marker(tmp_path: Path, monkeypatch
 
     monkeypatch.setattr(
         "sys.stdin",
-        type("FakeStdin", (), {"read": lambda self: json.dumps({"tool_input": {"command": "pytest -q"}})})(),
+        type(
+            "FakeStdin",
+            (),
+            {
+                "read": lambda self: json.dumps(
+                    {"tool_input": {"command": "sed -n '1,80p' hooks/core.py"}, "tool_response": "Process exited with code 0"}
+                )
+            },
+        )(),
     )
     assert codex_verification_state.main(["verification_state.py", "inspect-bash"]) == 0
     capsys.readouterr()
@@ -99,14 +107,18 @@ def test_verification_state_requires_explicit_marker(tmp_path: Path, monkeypatch
         type(
             "FakeStdin",
             (),
-            {"read": lambda self: json.dumps({"tool_input": {"command": "AGENT_ENGINEERING_STANDARD_VERIFIED=1 pytest -q"}})},
+            {
+                "read": lambda self: json.dumps(
+                    {"tool_input": {"command": "python3 scripts/verify_policy.py"}, "tool_response": "Process exited with code 0"}
+                )
+            },
         )(),
     )
     assert codex_verification_state.main(["verification_state.py", "inspect-bash"]) == 0
     capsys.readouterr()
     state = json.loads(state_file.read_text())
     assert state["pending_verification"] is False
-    assert state["last_verified_command"] == "AGENT_ENGINEERING_STANDARD_VERIFIED=1 pytest -q"
+    assert state["last_verified_command"] == "python3 scripts/verify_policy.py"
 
 
 def test_claude_and_codex_verification_state_share_logic(tmp_path: Path, monkeypatch, capsys) -> None:
