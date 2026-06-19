@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from policy.canonical import HOME, remove_block  # noqa: E402
+from policy.shared import HOME, remove_block  # noqa: E402
 from scripts.install_policy import run_install  # noqa: E402
 from scripts.verify_policy import verify_policy  # noqa: E402
 
@@ -70,7 +70,7 @@ def main() -> int:
         results = run_install(
             apply=True,
             dry_run=False,
-            targets={"claude", "codex", "skills", "hooks"},
+            targets={"claude", "skills", "hooks"},
             profiles={"main", "account1", "account2"},
         )
         ok = _new_owner_live()

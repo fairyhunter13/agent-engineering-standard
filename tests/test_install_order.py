@@ -4,9 +4,13 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 from scripts.install_policy import run_install
 
 OSE_REPO = Path("/home/hafiz/git/github.com/fairyhunter13/opencode-search-engine")
+if not (OSE_REPO / "scripts" / "integrations" / "canonical.py").exists():
+    pytest.skip("opencode-search-engine repo not present; OSE coexistence test skipped", allow_module_level=True)
 sys.path.insert(0, str(OSE_REPO / "scripts"))
 from integrations.canonical import (  # noqa: E402
     CANONICAL_BODY,

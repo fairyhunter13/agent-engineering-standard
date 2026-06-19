@@ -8,7 +8,7 @@ from pathlib import Path
 
 from hooks.claude import stop_verify as claude_stop_verify
 from hooks.claude import verification_state as claude_verification_state
-from hooks.core import enforce_post_apply_patch, evaluate_bash_guard, evaluate_edit_guard, snapshot_meta_path, write_snapshot
+from hooks.core import evaluate_bash_guard, evaluate_edit_guard
 
 
 def test_stop_verify_allows_when_scope_mismatches(tmp_path: Path, capsys) -> None:
@@ -219,43 +219,29 @@ def test_bash_guard_allows_explicit_verification_command() -> None:
     assert reason == ""
 
 
-def test_apply_patch_guard_blocks_large_new_file() -> None:
-    patch = "*** Begin Patch\n*** Add File: oversized.txt\n" + "".join(f"+{i}\n" for i in range(1, 201)) + "*** End Patch\n"
-    allowed, reason = evaluate_edit_guard({"tool_name": "apply_patch", "tool_input": {"command": patch}})
+def test_edit_guard_blocks_large_new_file(tmp_path: Path) -> None:
+    target = tmp_path / "new_module.py"
+    content = "".join(f"line {i}\n" for i in range(1, 201))
+    allowed, reason = evaluate_edit_guard({"tool_name": "Write", "tool_input": {"file_path": str(target), "content": content}})
     assert allowed is False
-    assert reason == "New file too large: 200 lines exceeds 150."
+    assert "exceeds 150" in reason
 
 
-def test_apply_patch_guard_blocks_large_net_change_for_existing_file() -> None:
-    patch = "*** Begin Patch\n*** Update File: notes.txt\n@@\n" + "".join(f"+line {i}\n" for i in range(1, 42)) + "*** End Patch\n"
-    allowed, reason = evaluate_edit_guard({"tool_name": "apply_patch", "tool_input": {"command": patch}})
+def test_edit_guard_blocks_large_net_change_for_existing_file(tmp_path: Path) -> None:
+    target = tmp_path / "existing.py"
+    target.write_text("seed\n")
+    new_text = "".join(f"line {i}\n" for i in range(1, 42))
+    allowed, reason = evaluate_edit_guard({"tool_name": "Edit", "tool_input": {"file_path": str(target), "old_string": "", "new_string": new_text}})
     assert allowed is False
-    assert reason == "Diff too large: +41 net lines exceeds 40."
+    assert "exceeds 40" in reason
 
 
-def test_post_apply_patch_reverts_oversized_new_file(tmp_path: Path) -> None:
-    state_dir = tmp_path / "state"
-    payload = {"tool_name": "apply_patch", "session_id": "sess-1", "cwd": str(tmp_path), "tool_input": {"command": "*** Begin Patch\n*** Add File: oversized.txt\n+1\n*** End Patch\n"}}
-    write_snapshot(state_dir, payload)
-    (tmp_path / "oversized.txt").write_text("".join(f"{i}\n" for i in range(1, 201)))
-    violation = enforce_post_apply_patch({"tool_name": "apply_patch", "session_id": "sess-1", "cwd": str(tmp_path), "tool_input": payload["tool_input"]}, state_dir)
-    assert "exceeds 150" in violation
-    assert not (tmp_path / "oversized.txt").exists()
-
-
-def test_post_apply_patch_ignores_corrupt_snapshot_metadata(tmp_path: Path) -> None:
-    state_dir = tmp_path / "state"
-    state_dir.mkdir()
-    snapshot_meta_path(state_dir, "sess-1").parent.mkdir(parents=True)
-    snapshot_meta_path(state_dir, "sess-1").write_text("{broken")
-    payload = {
-        "tool_name": "apply_patch",
-        "session_id": "sess-1",
-        "cwd": str(tmp_path),
-        "tool_input": {"command": "*** Begin Patch\n*** Add File: notes.txt\n+1\n*** End Patch\n"},
-    }
-
-    assert enforce_post_apply_patch(payload, state_dir) == ""
+def test_edit_guard_allows_small_change(tmp_path: Path) -> None:
+    target = tmp_path / "existing.py"
+    target.write_text("seed\n")
+    allowed, reason = evaluate_edit_guard({"tool_name": "Edit", "tool_input": {"file_path": str(target), "old_string": "seed", "new_string": "seed updated"}})
+    assert allowed is True
+    assert reason == ""
 
 
 def test_post_tool_state_writes_tolerate_concurrent_processes(tmp_path: Path) -> None:

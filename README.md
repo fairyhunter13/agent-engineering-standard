@@ -1,11 +1,11 @@
 # agent-engineering-standard
 
-Global doctrine, hooks, and skills for Claude and Codex.
+Global doctrine, hooks, and skills for Claude.
 
 This repo owns the generic engineering standard:
-- doctrine blocks for `~/.claude/*/CLAUDE.md` and `~/.codex/AGENTS.md`
-- generic Claude/Codex hook wiring
-- generic Claude/Codex skills
+- doctrine blocks for `~/.claude/*/CLAUDE.md`
+- generic Claude hook wiring
+- generic Claude skills
 - migration of generic lean ownership out of `opencode-search-engine`
 
 This repo does not own:
@@ -24,7 +24,7 @@ python3 scripts/migrate_from_opencode_search_engine.py --apply
 python3 scripts/migrate_from_opencode_search_engine.py --apply-cleanup
 ```
 
-Live behavior tests require working `codex` and `claude` CLIs and fail if either setup is unavailable:
+Live behavior tests require a working `claude` CLI and fail if it is unavailable:
 
 ```bash
 pytest -q tests/test_live_e2e.py

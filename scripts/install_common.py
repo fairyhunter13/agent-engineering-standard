@@ -95,14 +95,3 @@ def merge_hook_entries(
         return result(label, "missing", missing_message, settings_path, diff_text(old_text, new_text, str(settings_path)))
     write_text(settings_path, new_text, dry_run=dry_run)
     return result(label, "configured", configured_message, settings_path, diff_text(old_text, new_text, str(settings_path)))
-
-
-def manage_owned_json(path: Path, *, rendered: dict, apply: bool, dry_run: bool, label: str, missing_message: str, configured_message: str, synced_message: str) -> Result:
-    old_text = read_text(path)
-    new_text = dump_json(rendered)
-    if old_text.strip() == new_text.strip():
-        return result(label, "already_ok", synced_message, path)
-    if not apply:
-        return result(label, "missing", missing_message, path, diff_text(old_text, new_text, str(path)))
-    write_text(path, new_text, dry_run=dry_run)
-    return result(label, "configured", configured_message, path, diff_text(old_text, new_text, str(path)))
