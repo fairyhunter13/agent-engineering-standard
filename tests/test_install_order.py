@@ -72,19 +72,6 @@ def _assert_aes_and_ose_both_present(home: Path) -> None:
         ]
         assert any("/hooks/claude/pre_tool_use.py" in command for command in commands)
 
-    agents = (home / ".codex" / "AGENTS.md").read_text()
-    assert "agent-engineering-standard:doctrine" in agents
-    assert SENTINEL_AGENTS_START in agents
-    assert CANONICAL_MCP_URL in (home / ".codex" / "config.toml").read_text()
-    hooks = json.loads((home / ".codex" / "hooks.json").read_text())
-    codex_commands = [
-        hook["command"]
-        for entries in hooks["hooks"].values()
-        for entry in entries
-        for hook in entry.get("hooks", [])
-    ]
-    assert any("/hooks/codex/pre_tool_use.py" in command for command in codex_commands)
-
 
 def _seed_blank_home(home: Path) -> None:
     for root in (home / ".claude", home / ".claude-account1", home / ".claude-account2"):
@@ -103,7 +90,7 @@ def test_ose_then_aes_preserves_both_owned_surfaces(tmp_path: Path) -> None:
     run_install(
         apply=True,
         dry_run=False,
-        targets={"claude", "codex", "skills", "hooks"},
+        targets={"claude", "skills", "hooks"},
         profiles={"main", "account1", "account2"},
         home=home,
         repo_root=repo_root,
@@ -120,7 +107,7 @@ def test_aes_then_ose_preserves_both_owned_surfaces(tmp_path: Path) -> None:
     run_install(
         apply=True,
         dry_run=False,
-        targets={"claude", "codex", "skills", "hooks"},
+        targets={"claude", "skills", "hooks"},
         profiles={"main", "account1", "account2"},
         home=home,
         repo_root=repo_root,

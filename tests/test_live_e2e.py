@@ -46,59 +46,21 @@ def _seed_repo(root: Path) -> None:
     )
 
 
-def _codex_model() -> str:
-    return os.environ.get("AES_CODEX_E2E_MODEL", "gpt-5.4-mini")
-
-
 def _claude_model() -> str:
     return os.environ.get("AES_CLAUDE_E2E_MODEL", "haiku")
 
 
 def test_live_cli_prerequisites() -> None:
-    assert shutil.which("codex"), "codex CLI must be installed for live e2e tests"
     assert shutil.which("claude"), "claude CLI must be installed for live e2e tests"
-
-    codex_version = _run(["codex", "--version"], cwd=Path("/home/hafiz"))
-    assert codex_version.returncode == 0, codex_version.stdout + codex_version.stderr
 
     claude_version = _run(["claude", "--version"], cwd=Path("/home/hafiz"))
     assert claude_version.returncode == 0, claude_version.stdout + claude_version.stderr
 
 
-def test_live_global_doctrine_and_verified_edit_flow() -> None:
-    with tempfile.TemporaryDirectory(prefix="aes-codex-live-") as codex_tmp, tempfile.TemporaryDirectory(prefix="aes-claude-live-") as claude_tmp:
-        codex_root = Path(codex_tmp)
+def test_live_claude_doctrine_and_verified_edit_flow() -> None:
+    with tempfile.TemporaryDirectory(prefix="aes-claude-live-") as claude_tmp:
         claude_root = Path(claude_tmp)
-        _seed_repo(codex_root)
         _seed_repo(claude_root)
-
-        codex_read = codex_root / "codex_read.json"
-        codex_proc = _run(
-            [
-                "codex",
-                "exec",
-                "-m",
-                _codex_model(),
-                "-C",
-                str(codex_root),
-                "--ephemeral",
-                "-o",
-                str(codex_read),
-                DOCTRINE_DISCOVERY_PROMPT,
-            ],
-            cwd=Path("/home/hafiz"),
-        )
-        assert codex_proc.returncode == 0, codex_proc.stdout + codex_proc.stderr
-        codex_doctrine = json.loads(codex_read.read_text())
-        assert codex_doctrine["doctrine_loaded"] is True
-        assert _contains_doctrine_line(codex_doctrine["doctrine_lines"], "every line of code is a liability")
-        assert sorted(codex_doctrine["skills_seen"]) == [
-            "lean-change",
-            "lean-implement",
-            "lean-review",
-            "perf-investigation",
-            "repo-first-research",
-        ]
 
         claude_proc = _run(
             [
@@ -125,23 +87,6 @@ def test_live_global_doctrine_and_verified_edit_flow() -> None:
             "repo-first-research",
         ]
         assert "claude-haiku-4-5" in json.dumps(claude_result.get("modelUsage", {}))
-
-        codex_edit = _run(
-            [
-                "codex",
-                "exec",
-                "-m",
-                _codex_model(),
-                "-C",
-                str(codex_root),
-                "--dangerously-bypass-approvals-and-sandbox",
-                "--ephemeral",
-                "Append a single line containing VERIFIED_BY_CODEX to notes.txt. After the edit, run exactly this command and no other verification command: AGENT_ENGINEERING_STANDARD_VERIFIED=1 python3 -c \"print(0)\". Then stop.",
-            ],
-            cwd=Path("/home/hafiz"),
-        )
-        assert codex_edit.returncode == 0, codex_edit.stdout + codex_edit.stderr
-        assert "VERIFIED_BY_CODEX" in (codex_root / "notes.txt").read_text()
 
         claude_edit = _run(
             [
@@ -185,29 +130,51 @@ def test_live_claude_bash_write_block() -> None:
         assert "permission_denials" in claude_block.stdout
 
 
-def test_live_codex_bash_write_block() -> None:
-    with tempfile.TemporaryDirectory(prefix="aes-codex-bash-") as codex_tmp:
-        codex_root = Path(codex_tmp)
-        _seed_repo(codex_root)
-
-        codex_block = _run(
+def test_live_claude_stop_hook_terminates_without_loop() -> None:
+    with tempfile.TemporaryDirectory(prefix="aes-claude-stop-") as tmp:
+        root = Path(tmp)
+        _seed_repo(root)
+        proc = subprocess.run(
             [
-                "codex",
-                "exec",
-                "-m",
-                _codex_model(),
-                "-C",
-                str(codex_root),
-                "--dangerously-bypass-approvals-and-sandbox",
-                "--ephemeral",
-                "Attempt exactly one Bash command to create oversized.txt with 200 numbered lines using shell redirection. If the command is denied by a hook, do not try another command, report DENIED, and stop.",
+                "claude",
+                "-p",
+                "--model",
+                _claude_model(),
+                "--permission-mode",
+                "bypassPermissions",
+                "--output-format",
+                "json",
+                "Write a file named stop_test.txt with exactly the text 'hello'. Do NOT run any bash command afterward. Stop immediately after the Write.",
             ],
-            cwd=Path("/home/hafiz"),
+            cwd=root,
+            text=True,
+            capture_output=True,
+            timeout=60,
         )
-        assert codex_block.returncode == 0, codex_block.stdout + codex_block.stderr
-        oversized = codex_root / "oversized.txt"
-        if oversized.exists():
-            assert len(oversized.read_text().splitlines()) <= 150
-        stderr = codex_block.stderr
-        assert "Shell-based file mutation is not allowed" in stderr
-        assert "PreToolUse Blocked" in stderr
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert (root / "stop_test.txt").exists()
+
+
+def test_live_claude_write_guard_blocks_large_file() -> None:
+    with tempfile.TemporaryDirectory(prefix="aes-claude-write-guard-") as tmp:
+        root = Path(tmp)
+        _seed_repo(root)
+        proc = _run(
+            [
+                "claude",
+                "-p",
+                "--model",
+                _claude_model(),
+                "--permission-mode",
+                "bypassPermissions",
+                "--output-format",
+                "json",
+                "Use the Write tool to create large.txt with 200 numbered lines. Then stop.",
+            ],
+            cwd=root,
+        )
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        large = root / "large.txt"
+        if large.exists():
+            assert len(large.read_text().splitlines()) <= 150
+        assert "permission_denials" in proc.stdout

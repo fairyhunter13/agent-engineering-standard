@@ -462,20 +462,19 @@ def scope_matches(data: dict, payload: dict) -> bool:
     return True
 
 
-def stop_verify_main(*, agent: str, state_file: Path, load_json_fn) -> int:
+def stop_verify_main(*, state_file: Path, load_json_fn) -> int:
     payload = read_payload()
+    if payload.get("stop_hook_active"):
+        print("{}")
+        return 0
     data = load_json_fn(state_file, {"pending_verification": False})
     if not data.get("pending_verification"):
-        if agent == "claude":
-            print("{}")
+        print("{}")
         return 0
     if not scope_matches(data, payload):
-        if agent == "claude":
-            print("{}")
+        print("{}")
         return 0
-    message = f"Verification is still pending for the last edit. Run a relevant check before claiming completion ({agent})."
-    if agent == "codex":
-        return emit_json({"decision": "block", "reason": message})
+    message = "Verification is still pending for the last edit. Run a relevant check before claiming completion."
     return emit_json(
         {
             "hookSpecificOutput": {

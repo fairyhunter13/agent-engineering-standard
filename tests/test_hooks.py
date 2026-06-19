@@ -8,43 +8,37 @@ from pathlib import Path
 
 from hooks.claude import stop_verify as claude_stop_verify
 from hooks.claude import verification_state as claude_verification_state
-from hooks.codex import stop_verify as codex_stop_verify
-from hooks.codex import verification_state as codex_verification_state
 from hooks.core import enforce_post_apply_patch, evaluate_bash_guard, evaluate_edit_guard, snapshot_meta_path, write_snapshot
 
 
-def test_stop_verify_codex_blocks_with_current_contract(tmp_path: Path, capsys) -> None:
+def test_stop_verify_allows_when_scope_mismatches(tmp_path: Path, capsys) -> None:
     state_file = tmp_path / "verification-state.json"
     state_file.write_text(json.dumps({"pending_verification": True, "session_id": "sess-1"}))
-    codex_stop_verify.STATE_FILE = state_file
-    capsys.readouterr()
-    monkey_stdin = type("FakeStdin", (), {"read": lambda self: json.dumps({"session_id": "sess-1"})})()
-    import sys
-    original = sys.stdin
-    sys.stdin = monkey_stdin
-    try:
-        assert codex_stop_verify.main() == 0
-    finally:
-        sys.stdin = original
-    payload = json.loads(capsys.readouterr().out)
-    assert payload["decision"] == "block"
-    assert "Verification is still pending" in payload["reason"]
-
-
-def test_stop_verify_ignores_pending_state_from_other_session(tmp_path: Path, capsys) -> None:
-    state_file = tmp_path / "verification-state.json"
-    state_file.write_text(json.dumps({"pending_verification": True, "session_id": "sess-1"}))
-    codex_stop_verify.STATE_FILE = state_file
+    claude_stop_verify.STATE_FILE = state_file
     capsys.readouterr()
     monkey_stdin = type("FakeStdin", (), {"read": lambda self: json.dumps({"session_id": "sess-2"})})()
-    import sys
     original = sys.stdin
     sys.stdin = monkey_stdin
     try:
-        assert codex_stop_verify.main() == 0
+        assert claude_stop_verify.main() == 0
     finally:
         sys.stdin = original
-    assert capsys.readouterr().out == ""
+    assert json.loads(capsys.readouterr().out) == {}
+
+
+def test_stop_verify_allows_when_stop_hook_active(tmp_path: Path, capsys) -> None:
+    state_file = tmp_path / "verification-state.json"
+    state_file.write_text(json.dumps({"pending_verification": True, "session_id": "sess-1"}))
+    claude_stop_verify.STATE_FILE = state_file
+    capsys.readouterr()
+    monkey_stdin = type("FakeStdin", (), {"read": lambda self: json.dumps({"session_id": "sess-1", "stop_hook_active": True})})()
+    original = sys.stdin
+    sys.stdin = monkey_stdin
+    try:
+        assert claude_stop_verify.main() == 0
+    finally:
+        sys.stdin = original
+    assert json.loads(capsys.readouterr().out) == {}
 
 
 def test_stop_verify_claude_uses_stop_additional_context(tmp_path: Path, capsys) -> None:
@@ -58,26 +52,17 @@ def test_stop_verify_claude_uses_stop_additional_context(tmp_path: Path, capsys)
     assert "Verification is still pending" in payload["hookSpecificOutput"]["additionalContext"]
 
 
-def test_stop_verify_codex_allows_silently_when_not_pending(tmp_path: Path, capsys) -> None:
-    state_file = tmp_path / "verification-state.json"
-    state_file.write_text(json.dumps({"pending_verification": False}))
-    codex_stop_verify.STATE_FILE = state_file
-
-    assert codex_stop_verify.main() == 0
-    assert capsys.readouterr().out == ""
-
-
 def test_verification_state_clears_after_verification_command(tmp_path: Path, monkeypatch, capsys) -> None:
     state_dir = tmp_path / "state"
     state_file = state_dir / "verification-state.json"
-    monkeypatch.setattr(codex_verification_state, "STATE_DIR", state_dir)
-    monkeypatch.setattr(codex_verification_state, "STATE_FILE", state_file)
+    monkeypatch.setattr(claude_verification_state, "STATE_DIR", state_dir)
+    monkeypatch.setattr(claude_verification_state, "STATE_FILE", state_file)
 
     monkeypatch.setattr(
         "sys.stdin",
         type("FakeStdin", (), {"read": lambda self: json.dumps({"session_id": "sess-1", "cwd": "/repo"})})(),
     )
-    assert codex_verification_state.main(["verification_state.py", "mark-edit"]) == 0
+    assert claude_verification_state.main(["verification_state.py", "mark-edit"]) == 0
     capsys.readouterr()
     state = json.loads(state_file.read_text())
     assert state["pending_verification"] is True
@@ -96,7 +81,7 @@ def test_verification_state_clears_after_verification_command(tmp_path: Path, mo
             },
         )(),
     )
-    assert codex_verification_state.main(["verification_state.py", "inspect-bash"]) == 0
+    assert claude_verification_state.main(["verification_state.py", "inspect-bash"]) == 0
     capsys.readouterr()
     state = json.loads(state_file.read_text())
     assert state["pending_verification"] is True
@@ -114,7 +99,7 @@ def test_verification_state_clears_after_verification_command(tmp_path: Path, mo
             },
         )(),
     )
-    assert codex_verification_state.main(["verification_state.py", "inspect-bash"]) == 0
+    assert claude_verification_state.main(["verification_state.py", "inspect-bash"]) == 0
     capsys.readouterr()
     state = json.loads(state_file.read_text())
     assert state["pending_verification"] is False
@@ -122,42 +107,42 @@ def test_verification_state_clears_after_verification_command(tmp_path: Path, mo
 
 
 def test_verification_state_clears_when_tool_response_absent(tmp_path: Path, monkeypatch, capsys) -> None:
-    """Codex may omit tool_response; verification command should still clear pending."""
+    """tool_response may be absent; verification command should still clear pending."""
     state_dir = tmp_path / "state"
     state_file = state_dir / "verification-state.json"
-    monkeypatch.setattr(codex_verification_state, "STATE_DIR", state_dir)
-    monkeypatch.setattr(codex_verification_state, "STATE_FILE", state_file)
+    monkeypatch.setattr(claude_verification_state, "STATE_DIR", state_dir)
+    monkeypatch.setattr(claude_verification_state, "STATE_FILE", state_file)
 
     monkeypatch.setattr(
         "sys.stdin",
         type("FakeStdin", (), {"read": lambda self: json.dumps({"session_id": "sess-2", "cwd": "/repo"})})(),
     )
-    assert codex_verification_state.main(["verification_state.py", "mark-edit"]) == 0
+    assert claude_verification_state.main(["verification_state.py", "mark-edit"]) == 0
     capsys.readouterr()
 
     monkeypatch.setattr(
         "sys.stdin",
-        type("FakeStdin", (), {"read": lambda self: json.dumps({"tool_input": {"command": "codex doctor --summary"}})})(),
+        type("FakeStdin", (), {"read": lambda self: json.dumps({"tool_input": {"command": "python3 scripts/verify_policy.py"}})})(),
     )
-    assert codex_verification_state.main(["verification_state.py", "inspect-bash"]) == 0
+    assert claude_verification_state.main(["verification_state.py", "inspect-bash"]) == 0
     capsys.readouterr()
     state = json.loads(state_file.read_text())
     assert state["pending_verification"] is False
-    assert state["last_verified_command"] == "codex doctor --summary"
+    assert state["last_verified_command"] == "python3 scripts/verify_policy.py"
 
 
 def test_verification_state_stays_pending_on_explicit_failure(tmp_path: Path, monkeypatch, capsys) -> None:
     """A verification command with non-zero exit code must not clear pending."""
     state_dir = tmp_path / "state"
     state_file = state_dir / "verification-state.json"
-    monkeypatch.setattr(codex_verification_state, "STATE_DIR", state_dir)
-    monkeypatch.setattr(codex_verification_state, "STATE_FILE", state_file)
+    monkeypatch.setattr(claude_verification_state, "STATE_DIR", state_dir)
+    monkeypatch.setattr(claude_verification_state, "STATE_FILE", state_file)
 
     monkeypatch.setattr(
         "sys.stdin",
         type("FakeStdin", (), {"read": lambda self: json.dumps({"session_id": "sess-3", "cwd": "/repo"})})(),
     )
-    assert codex_verification_state.main(["verification_state.py", "mark-edit"]) == 0
+    assert claude_verification_state.main(["verification_state.py", "mark-edit"]) == 0
     capsys.readouterr()
 
     monkeypatch.setattr(
@@ -168,14 +153,14 @@ def test_verification_state_stays_pending_on_explicit_failure(tmp_path: Path, mo
             {"read": lambda self: json.dumps({"tool_input": {"command": "python3 scripts/verify_policy.py"}, "tool_response": "Process exited with code 1"})},
         )(),
     )
-    assert codex_verification_state.main(["verification_state.py", "inspect-bash"]) == 0
+    assert claude_verification_state.main(["verification_state.py", "inspect-bash"]) == 0
     capsys.readouterr()
     state = json.loads(state_file.read_text())
     assert state["pending_verification"] is True
     assert state.get("last_verified_command") is None
 
 
-def test_claude_and_codex_verification_state_share_logic(tmp_path: Path, monkeypatch, capsys) -> None:
+def test_verification_state_marks_pending_on_edit(tmp_path: Path, monkeypatch, capsys) -> None:
     state_dir = tmp_path / "state"
     state_file = state_dir / "verification-state.json"
     monkeypatch.setattr(claude_verification_state, "STATE_DIR", state_dir)
@@ -234,7 +219,7 @@ def test_bash_guard_allows_explicit_verification_command() -> None:
     assert reason == ""
 
 
-def test_apply_patch_guard_blocks_large_new_file_for_codex() -> None:
+def test_apply_patch_guard_blocks_large_new_file() -> None:
     patch = "*** Begin Patch\n*** Add File: oversized.txt\n" + "".join(f"+{i}\n" for i in range(1, 201)) + "*** End Patch\n"
     allowed, reason = evaluate_edit_guard({"tool_name": "apply_patch", "tool_input": {"command": patch}})
     assert allowed is False

@@ -10,10 +10,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from policy.shared import HOME, Result  # noqa: E402
 from scripts.install_claude import install_claude  # noqa: E402
-from scripts.install_codex import install_codex  # noqa: E402
 
-ALL_TARGETS = {"claude", "codex", "skills", "hooks"}
-DEFAULT_TARGETS = {"claude", "codex", "skills", "hooks"}
+ALL_TARGETS = {"claude", "skills", "hooks"}
+DEFAULT_TARGETS = {"claude", "skills", "hooks"}
 
 
 def run_install(
@@ -27,24 +26,12 @@ def run_install(
 ) -> list[Result]:
     repo_root = (repo_root or Path(__file__).resolve().parents[1]).resolve()
     results: list[Result] = []
-    claude_targets = targets & {"claude", "skills", "hooks"}
-    codex_targets = targets & {"codex", "skills", "hooks"}
-
-    if claude_targets:
+    if targets & {"claude", "skills", "hooks"}:
         results.extend(
             install_claude(
                 apply=apply,
                 dry_run=dry_run,
                 profiles=profiles,
-                home=home,
-                repo_root=repo_root,
-            )
-        )
-    if codex_targets:
-        results.extend(
-            install_codex(
-                apply=apply,
-                dry_run=dry_run,
                 home=home,
                 repo_root=repo_root,
             )

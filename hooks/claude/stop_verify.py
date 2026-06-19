@@ -11,7 +11,7 @@ from policy.shared import STATE_FILE, load_json  # noqa: E402
 
 
 def main() -> int:
-    return stop_verify_main(agent="claude", state_file=STATE_FILE, load_json_fn=load_json)
+    return stop_verify_main(state_file=STATE_FILE, load_json_fn=load_json)
 
 
 if __name__ == "__main__":

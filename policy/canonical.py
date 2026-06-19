@@ -11,18 +11,6 @@ from policy.claude import (  # noqa: F401
     skill_sources as claude_skill_sources,
     skill_targets as claude_skill_targets,
 )
-from policy.codex import (  # noqa: F401
-    CODEX_DOCTRINE_END,
-    CODEX_DOCTRINE_START,
-    CODEX_HOOKS,
-    agents_path as codex_agents_path,
-    format_doctrine as format_codex_doctrine,
-    hooks_path as codex_hooks_path,
-    managed_hook_commands as codex_managed_hook_commands,
-    render_hooks as render_codex_hooks,
-    skill_sources as codex_skill_sources,
-    skill_targets as codex_skill_targets,
-)
 from policy.shared import (  # noqa: F401
     DOCTRINE_BODY,
     DOCTRINE_LINES,
@@ -46,4 +34,4 @@ from policy.shared import (  # noqa: F401
 
 
 def managed_hook_commands(repo_root=None) -> set[str]:
-    return claude_managed_hook_commands(repo_root) | codex_managed_hook_commands(repo_root)
+    return claude_managed_hook_commands(repo_root)

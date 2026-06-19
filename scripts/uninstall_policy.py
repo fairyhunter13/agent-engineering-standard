@@ -16,7 +16,6 @@ from policy.claude import (
     skill_sources as claude_skill_sources,
     skill_targets as claude_skill_targets,
 )
-from policy.codex import CODEX_DOCTRINE_END, CODEX_DOCTRINE_START, hooks_path as codex_hooks_path, skill_sources as codex_skill_sources, skill_targets as codex_skill_targets
 from policy.shared import HOME, STATE_DIR, dump_json, load_json, remove_block, write_text
 
 
@@ -47,24 +46,11 @@ def uninstall_claude(*, dry_run: bool) -> None:
                 target.unlink()
 
 
-def uninstall_codex(*, dry_run: bool) -> None:
-    agents_path = HOME / ".codex" / "AGENTS.md"
-    write_text(agents_path, remove_block(agents_path.read_text() if agents_path.exists() else "", CODEX_DOCTRINE_START, CODEX_DOCTRINE_END), dry_run=dry_run)
-    hooks_path = codex_hooks_path(HOME)
-    if hooks_path.exists() and not dry_run:
-        hooks_path.unlink()
-    sources = codex_skill_sources()
-    for name, target in codex_skill_targets().items():
-        if target.is_symlink() and target.resolve() == sources[name].resolve() and not dry_run:
-            target.unlink()
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description="Remove agent-engineering-standard owned surfaces.")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     uninstall_claude(dry_run=args.dry_run)
-    uninstall_codex(dry_run=args.dry_run)
     if STATE_DIR.exists() and not args.dry_run:
         for child in STATE_DIR.glob("*"):
             child.unlink()

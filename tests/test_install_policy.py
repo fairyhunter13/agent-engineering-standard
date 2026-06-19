@@ -18,10 +18,6 @@ def test_install_policy_apply_preserves_mcp_and_installs_managed_surfaces(tmp_pa
 OSE
 <!-- <<< opencode-search global instructions <<< -->
 """
-    ose_agents = """[opencode-search-global-instructions:start]
-OSE
-[opencode-search-global-instructions:end]
-"""
     for root in (home / ".claude", home / ".claude-account1", home / ".claude-account2"):
         _write(root / "CLAUDE.md", ose_block)
         _write(
@@ -33,8 +29,6 @@ OSE
                 }
             ),
         )
-    _write(home / ".codex" / "AGENTS.md", ose_agents)
-    _write(home / ".codex" / "config.toml", 'developer_instructions = "keep"\n')
     dot_claude_main = home / ".claude.json"
     dot_claude_main.write_text('{"mcpServers":{"opencode-search":{"type":"stdio"}}}')
     legacy_skill = home / ".claude" / "skills" / "lean-change"
@@ -44,7 +38,7 @@ OSE
     results = run_install(
         apply=True,
         dry_run=False,
-        targets={"claude", "codex", "skills", "hooks"},
+        targets={"claude", "skills", "hooks"},
         profiles={"main", "account1", "account2"},
         home=home,
         repo_root=repo_root,
@@ -63,8 +57,5 @@ OSE
         for hook in entry.get("hooks", [])
     ]
     assert "python3 /home/hafiz/git/github.com/fairyhunter13/agent-engineering-standard/hooks/lean_gate.py" not in all_commands
-    assert (home / ".codex" / "config.toml").read_text() == 'developer_instructions = "keep"\n'
     assert dot_claude_main.read_text() == '{"mcpServers":{"opencode-search":{"type":"stdio"}}}'
     assert (home / ".claude" / "skills" / "lean-change").is_symlink()
-    assert (home / ".codex" / "hooks.json").exists()
-    assert (home / ".agents" / "skills" / "lean-change").is_symlink()
