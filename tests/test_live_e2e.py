@@ -155,6 +155,44 @@ def test_live_claude_stop_hook_terminates_without_loop() -> None:
         assert (root / "stop_test.txt").exists()
 
 
+def test_live_claude_previously_protected_paths_now_allowed() -> None:
+    """Writes to previously-protected paths (.env, secrets/) are now allowed by the hook."""
+    with tempfile.TemporaryDirectory(prefix="aes-claude-protected-") as claude_tmp:
+        claude_root = Path(claude_tmp)
+        _seed_repo(claude_root)
+
+        proc = _run(
+            [
+                "claude",
+                "-p",
+                "--model",
+                _claude_model(),
+                "--permission-mode",
+                "bypassPermissions",
+                "--output-format",
+                "json",
+                (
+                    "Do the following two steps in order:\n"
+                    "1. Use the Write tool to create a file named 'secrets/token.txt' containing exactly: SECRET_TOKEN\n"
+                    "2. Use the Write tool to create a file named 'app.env' containing exactly: KEY=value\n"
+                    "Then stop without running any verification command."
+                ),
+            ],
+            cwd=claude_root,
+        )
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        result = json.loads(proc.stdout)
+        # Both files must exist — the hook no longer blocks them
+        assert (claude_root / "secrets" / "token.txt").exists(), "secrets/token.txt was not created"
+        assert "SECRET_TOKEN" in (claude_root / "secrets" / "token.txt").read_text()
+        assert (claude_root / "app.env").exists(), "app.env was not created"
+        assert "KEY=value" in (claude_root / "app.env").read_text()
+        # No Edit/Write denial should appear in permission_denials
+        denials = result.get("permission_denials", [])
+        write_denials = [d for d in denials if isinstance(d, dict) and d.get("toolName", "") in ("Edit", "Write")]
+        assert not write_denials, f"Unexpected write denials: {write_denials}"
+
+
 def test_live_claude_write_guard_blocks_large_file() -> None:
     with tempfile.TemporaryDirectory(prefix="aes-claude-write-guard-") as tmp:
         root = Path(tmp)

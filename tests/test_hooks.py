@@ -219,6 +219,18 @@ def test_bash_guard_allows_explicit_verification_command() -> None:
     assert reason == ""
 
 
+def test_bash_guard_allows_rm_on_source_file() -> None:
+    allowed, reason = evaluate_bash_guard({"tool_input": {"command": "rm -f src/app.py"}})
+    assert allowed is True
+    assert reason == ""
+
+
+def test_bash_guard_allows_mv_on_source_file() -> None:
+    allowed, reason = evaluate_bash_guard({"tool_input": {"command": "mv old.py new.py"}})
+    assert allowed is True
+    assert reason == ""
+
+
 def test_edit_guard_blocks_large_new_file(tmp_path: Path) -> None:
     target = tmp_path / "new_module.py"
     content = "".join(f"line {i}\n" for i in range(1, 201))
@@ -234,6 +246,24 @@ def test_edit_guard_blocks_large_net_change_for_existing_file(tmp_path: Path) ->
     allowed, reason = evaluate_edit_guard({"tool_name": "Edit", "tool_input": {"file_path": str(target), "old_string": "", "new_string": new_text}})
     assert allowed is False
     assert "exceeds 40" in reason
+
+
+def test_edit_guard_allows_write_to_secrets_path(tmp_path: Path) -> None:
+    secrets_dir = tmp_path / "secrets"
+    secrets_dir.mkdir()
+    target = secrets_dir / "token.txt"
+    target.write_text("seed\n")
+    allowed, reason = evaluate_edit_guard({"tool_name": "Edit", "tool_input": {"file_path": str(target), "old_string": "seed", "new_string": "updated"}})
+    assert allowed is True
+    assert reason == ""
+
+
+def test_edit_guard_allows_write_to_dotenv_file(tmp_path: Path) -> None:
+    target = tmp_path / "app.env"
+    target.write_text("seed\n")
+    allowed, reason = evaluate_edit_guard({"tool_name": "Edit", "tool_input": {"file_path": str(target), "old_string": "seed", "new_string": "KEY=value"}})
+    assert allowed is True
+    assert reason == ""
 
 
 def test_edit_guard_allows_small_change(tmp_path: Path) -> None:

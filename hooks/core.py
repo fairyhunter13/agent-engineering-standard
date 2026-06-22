@@ -8,7 +8,6 @@ import sys
 import time
 from pathlib import Path
 
-PROTECTED_MARKERS = ("/secrets/", "/.local/share/opencode-search/", "/GoogleDrive/", "/OneDrive/")
 UNGATED_MARKERS = ("/.claude/", "/.codex/", "/.agents/skills/", "/.local/state/agent-engineering-standard/")
 VERIFICATION_MARKER = "agent_engineering_standard_verified=1"
 VERIFICATION_COMMAND_RE = re.compile(r"(?:check|doctor|json\.tool|lint|test|verify)")
@@ -21,9 +20,6 @@ MUTATING_BASH_PATTERNS = (
     "perl -pi",
     "touch ",
     "truncate ",
-    "cp ",
-    "mv ",
-    "rm ",
 )
 SOURCE_PATH_RE = re.compile(
     r"(?P<path>(?:\./|/)?[\w./-]+\.(?:py|js|jsx|ts|tsx|json|md|txt|yaml|yml|toml|sh|bash|zsh|ini|cfg|conf|html|css|go|rs|java|kt|c|h|cpp|hpp|rb|php|swift|sql|xml))"
@@ -50,8 +46,6 @@ def evaluate_edit_guard(payload: dict) -> tuple[bool, str]:
     file_path = tool_input.get("file_path") or tool_input.get("notebook_path") or tool_input.get("path") or ""
     if any(marker in file_path for marker in UNGATED_MARKERS):
         return True, ""
-    if any(marker in file_path for marker in PROTECTED_MARKERS) or file_path.endswith(".env"):
-        return False, f"Protected path: {file_path}"
     if tool_name == "MultiEdit":
         new_text = "\n".join(edit.get("new_string", "") for edit in tool_input.get("edits", []))
         old_text = "\n".join(edit.get("old_string", "") for edit in tool_input.get("edits", []))
