@@ -65,7 +65,7 @@ def _claude_available() -> bool:
     return shutil.which("claude") is not None
 
 
-def _run_claude(prompt: str, config_dir: str, model: str | None = None) -> dict:
+def _run_claude(prompt: str, config_dir: str, model: str | None = None, timeout: int = 120) -> dict:
     model = model or os.environ.get("AES_CLAUDE_E2E_MODEL", "haiku")
     env = dict(os.environ, CLAUDE_CONFIG_DIR=config_dir)
     with tempfile.TemporaryDirectory(prefix="aes-live-") as tmp:
@@ -80,7 +80,7 @@ def _run_claude(prompt: str, config_dir: str, model: str | None = None) -> dict:
         proc = subprocess.run(
             ["claude", "-p", "--model", model, "--output-format", "stream-json",
              "--verbose", "--dangerously-skip-permissions", prompt],
-            env=env, text=True, capture_output=True, timeout=120, cwd=tmp,
+            env=env, text=True, capture_output=True, timeout=timeout, cwd=tmp,
         )
     events = []
     for line in proc.stdout.splitlines():
@@ -346,6 +346,153 @@ def test_non_se_prompt_does_not_invoke_ose():
     assert not _has_ose_tool_use(result["events"]), "OSE invoked for non-SE prompt"
 
 
+def _ose_result_text(events: list[dict]) -> str:
+    """Concatenate OSE tool-result text and final assistant text from stream-json events."""
+    parts = []
+    for ev in events:
+        if ev.get("type") == "user":
+            for block in ev.get("message", {}).get("content", []):
+                if isinstance(block, dict) and block.get("type") == "tool_result":
+                    for inner in block.get("content", []):
+                        if isinstance(inner, dict) and inner.get("type") == "text":
+                            parts.append(inner["text"])
+        elif ev.get("type") == "assistant":
+            for block in ev.get("message", {}).get("content", []):
+                if isinstance(block, dict) and block.get("type") == "text":
+                    parts.append(block.get("text", ""))
+    return " ".join(parts)
+
+
+_SKILLS_BACKEND = [
+    ("old mobile app crashes after we shipped a breaking change to our REST endpoint response shape", "api-versioning-and-contracts"),
+    ("synchronous HTTP calls between microservices cause cascading failures when the checkout service is slow", "async-messaging-patterns"),
+    ("product catalog database is hammered; every page load fires 50 queries for the same data", "caching-and-invalidation"),
+    ("our service hammers the bank API even when it is down, queue builds up until everything crashes", "circuit-breaker"),
+    ("PostgreSQL hits max_connections under load, new requests fail with too many connections", "connection-pooling"),
+    ("OFFSET 50000 page loads take 8 seconds, listing endpoint slows as users scroll deeper", "cursor-pagination"),
+    ("messages are sometimes processed twice and sometimes dropped; when does exactly-once delivery apply", "delivery-semantics"),
+    ("a request spans 5 services, response is slow but we cannot tell which service is the bottleneck", "distributed-tracing"),
+    ("adding a NOT NULL column to a 50M row table without taking the site down for maintenance", "expand-contract-migrations"),
+    ("retrying a failed payment request charges the customer a second time", "idempotency-keys"),
+    ("EXPLAIN shows a sequential scan on a 10M row table, query takes 15 seconds on a simple filter", "indexing-and-query-plans"),
+    ("ORM issues 200 SQL queries when rendering a page that lists 200 orders", "n-plus-one-queries"),
+    ("a single misbehaving API client starves all other clients and brings the service to its knees", "rate-limiting-and-backpressure"),
+    ("naive retry storm amplifies load on an already-struggling downstream service during an outage", "retries-with-backoff-and-jitter"),
+    ("plain text log messages are unsearchable in Datadog; correlation between requests across services is impossible", "structured-logging"),
+    ("two concurrent checkouts decrement the same inventory count causing overselling without locks", "transaction-isolation-and-locking"),
+]
+
+
+_SKILLS_CRAFT = [
+    ("PR reviews take days, reviewers block on nits, authors feel attacked, no actionable feedback", "code-review-discipline"),
+    ("git bisect fails because commits are squashed into huge blobs with messages like fix stuff", "commit-and-pr-hygiene"),
+    ("goroutine writes to a shared map while another goroutine reads, intermittent panic in production", "concurrency-and-races"),
+    ("bug reported in prod cannot be reproduced locally, no idea where to start investigating", "debugging-methodology"),
+    ("package.json has 400 dependencies including abandoned packages with critical CVEs", "dependency-hygiene"),
+    ("all errors are swallowed or re-thrown as generic 500s; impossible to distinguish expected from unexpected", "error-handling-taxonomy"),
+    ("shipping a new checkout flow deploys to all users at once with no ability to roll back incrementally", "feature-flags-and-rollout"),
+    ("need to extract a class from legacy code that has no tests and could break anything", "refactoring-under-tests"),
+]
+_SKILLS_DATA = [
+    ("need to populate a new column from event history for 500M rows without locking the production table", "backfill-safety"),
+    ("BigQuery query over 3 years of events scans the entire table and costs 800 dollars each run", "data-partitioning"),
+    ("a NULL in an upstream column silently propagated through the pipeline into the BI dashboard", "data-quality-checks"),
+    ("user emails and phone numbers are being logged in the analytics pipeline and a GDPR audit is coming", "pii-minimization"),
+    ("re-running a failed ETL stage inserted duplicate rows that propagated into the data warehouse", "pipeline-idempotency"),
+    ("user input is concatenated into an LLM system prompt allowing the user to escape the instructions", "prompt-injection-defense"),
+    ("RAG chatbot gives wrong answers but we have no metrics to tell if retrieval or generation is the problem", "rag-and-llm-evaluation"),
+    ("changed a protobuf field type and Avro consumers started throwing deserialization exceptions", "schema-evolution"),
+]
+_SKILLS_FRONTEND = [
+    ("hero image is 4MB uncompressed, LCP is 8s on mobile, no width and height attributes causing layout shift", "asset-and-image-optimization"),
+    ("entire app bundle loads on the login page even though most routes are never visited", "code-splitting-and-lazy-loading"),
+    ("Google Search Console shows poor CLS from ads that inject content above the fold after page load", "core-web-vitals"),
+    ("XSS via injected script tag in user-generated content, no Content-Security-Policy header set", "csp-and-frontend-security"),
+    ("uncaught error in one React widget crashes the entire app and shows a blank white page", "error-boundaries"),
+    ("form shows all validation errors only on final submit, users cannot tell which field failed mid-typing", "form-validation-and-ux"),
+    ("app shows English for users in Japan because locale detection uses the wrong header, pluralization breaks", "internationalization"),
+    ("main.js is 2MB gzipped, Time to Interactive on 3G is 12 seconds", "js-bundle-budget"),
+    ("synthetic tests pass but real users report the page feels slow and we have no field performance data", "real-user-monitoring"),
+    ("Next.js hydration error: server HTML does not match client render, app flickers on load", "ssr-rsc-and-hydration"),
+    ("prop drilling 8 levels deep, every parent re-renders when any child state changes", "state-management-boundaries"),
+    ("screen reader skips an important button, color contrast ratio is 2:1 on the call-to-action", "wcag-accessibility"),
+]
+
+
+_SKILLS_INFRA = [
+    ("after the outage the team blamed the engineer, no root-cause analysis, same issue recurred two weeks later", "blameless-postmortems"),
+    ("need to roll back a bad deploy instantly without waiting for all pods to terminate and restart", "blue-green-deployments"),
+    ("route 5 percent of traffic to the new version and auto-rollback if error rate exceeds the SLO threshold", "canary-deployments"),
+    ("CI takes 45 minutes, everyone merges at 5pm causing a deploy train collision", "cicd-pipeline-design"),
+    ("Docker image is 2GB, runs as root, includes dev dependencies, security scan reports 80 HIGH CVEs", "container-image-hygiene"),
+    ("CTO wants to measure engineering delivery speed but we have no baseline metrics established", "dora-metrics"),
+    ("traffic spikes at 9am crash pods because Kubernetes does not scale up fast enough before requests fail", "horizontal-pod-autoscaling"),
+    ("second terraform apply changes resources that nothing touched, the plan is never empty on repeated runs", "iac-idempotency"),
+    ("pod OOMKilled in production, memory limit was set to 64Mi for a JVM service that needs much more", "k8s-requests-and-limits"),
+    ("pods pass liveness check while still initializing, traffic is routed before the app finishes starting", "liveness-and-readiness-probes"),
+    ("migrating from Datadog APM to vendor-neutral tracing without rewriting all instrumentation code", "opentelemetry-instrumentation"),
+    ("engineer who wrote the service left, on-call has no documentation to debug a 3am PagerDuty alert", "runbooks-and-incident-response"),
+    ("database password hardcoded in docker-compose.yml was checked into the public GitHub repository", "secrets-management"),
+    ("team ships features so fast that reliability degrades with no mechanism to enforce a freeze", "slos-and-error-budgets"),
+    ("Datadog bill tripled after adding distributed tracing because we sample 100 percent of all requests", "telemetry-cost-and-sampling"),
+    ("rolling update to Kubernetes drops 5 percent of requests as old pods terminate mid-connection", "zero-downtime-deployments"),
+]
+_SKILLS_QA = [
+    ("frontend team and backend team keep breaking each other's API contracts, need isolated boundary verification", "contract-testing"),
+    ("100 percent line coverage but mutation score is 12 percent, tests do not actually catch real bugs", "coverage-as-signal"),
+    ("test passes locally, fails in CI, passes again on retry — it depends on the current timestamp", "deterministic-tests"),
+    ("Selenium suite has 2000 tests, takes 3 hours, breaks on every CSS class rename", "e2e-test-strategy"),
+    ("CI is red 60 percent of the time from tests that sometimes pass and sometimes fail randomly", "flaky-test-quarantine"),
+    ("unit tests mock the entire database layer, tests pass but a migration broke production silently", "mock-boundaries"),
+    ("tests pass but nobody trusts them; want to verify tests actually detect real code defects", "mutation-testing"),
+    ("use Hypothesis or QuickCheck to generate hundreds of random inputs automatically and discover edge cases hand-written examples miss", "property-based-testing"),
+    ("test environment uses a copy of the production database containing real user PII", "sanitized-test-data"),
+    ("1000 snapshot tests, every CSS change breaks all of them and nobody reviews the diffs meaningfully", "snapshot-testing-hygiene"),
+    ("every test creates fixtures with 20-line setup blocks duplicated across 500 test files", "test-data-builders"),
+    ("all tests are E2E, CI takes 4 hours, a small refactor breaks 200 tests covering the same behavior", "test-pyramid"),
+]
+
+
+_SKILLS_SECURITY = [
+    ("microservice has admin database access because scoping permissions was harder than granting full access", "least-privilege-and-zero-trust"),
+    ("user can increment the ID in the URL and see another user's private invoice data", "owasp-a01-broken-access-control"),
+    ("debug endpoint is enabled in production, server version is exposed in HTTP response headers", "owasp-a02-security-misconfiguration"),
+    ("npm audit finds a critical CVE in a transitive dependency we did not know we were shipping", "owasp-a03-supply-chain-and-sbom"),
+    ("threat model the payment flow at design time to find missing business logic constraints before writing any code", "owasp-a04-insecure-design"),
+    ("passwords stored as MD5 hashes, TLS 1.0 enabled, customer data at rest is not encrypted", "owasp-a05-cryptographic-failures"),
+    ("log4shell-style vulnerability 3 hops deep in the dependency tree, no process to patch in 48 hours", "owasp-a06-vulnerable-components"),
+    ("no rate limiting on login endpoint, no MFA required, JWTs never expire, sessions are permanent", "owasp-a07-authentication-failures"),
+    ("GitHub Actions workflow uses mutable tag actions/checkout@main which could be poisoned by attacker", "owasp-a08-integrity-failures"),
+    ("account takeover happened but we have no audit logs of login attempts or permission changes", "owasp-a09-logging-failures"),
+    ("internal stack trace with database schema details is returned to the client on every 500 error", "owasp-a10-exceptional-conditions"),
+    ("AWS access key committed to GitHub 6 months ago, now seeing unauthorized S3 charges", "secrets-in-code"),
+    ("security only tests in production via pentest, findings arrive after code is already shipped", "shift-left-sast-dast-sca"),
+    ("user input is concatenated directly into a SQL query string using f-string formatting", "sql-injection"),
+]
+
+ALL_SKILLS = (
+    _SKILLS_BACKEND + _SKILLS_CRAFT + _SKILLS_DATA + _SKILLS_FRONTEND
+    + _SKILLS_INFRA + _SKILLS_QA + _SKILLS_SECURITY
+)
+
+DISCIPLINE_REPRESENTATIVES = [
+    ("backend", "ORM issues 200 SQL queries when rendering a page listing 200 orders", "n-plus-one-queries",
+     ["eager", "join", "dataloader", "batch"]),
+    ("craft", "goroutine writes to a shared map while another reads, intermittent panic in production", "concurrency-and-races",
+     ["race", "mutex", "lock", "atomic", "sync"]),
+    ("data", "re-running a failed ETL stage inserted duplicate rows that propagated into the data warehouse", "pipeline-idempotency",
+     ["idempotent", "deduplicate", "upsert", "checkpoint", "dedup"]),
+    ("frontend", "Google Search Console shows poor CLS from ads injecting content above the fold after page load", "core-web-vitals",
+     ["lcp", "cls", "inp", "layout", "cumulative", "vitals"]),
+    ("infra", "team ships so fast that reliability degrades with no mechanism to enforce a reliability freeze", "slos-and-error-budgets",
+     ["slo", "error budget", "objective", "budget", "burn"]),
+    ("qa", "all tests are E2E, CI takes 4 hours, small refactor breaks 200 tests covering the same behavior", "test-pyramid",
+     ["pyramid", "unit", "integration", "e2e"]),
+    ("security", "user input is concatenated directly into a SQL query string using f-string formatting", "sql-injection",
+     ["parameterized", "prepared", "bind", "orm", "injection"]),
+]
+
+
 def test_fallback_catalog_searchable_without_daemon():
     """Layer 4: grep over skills/catalog/ works without OSE daemon."""
     files = list(CATALOG_DIR.glob("backend/n-plus-one-queries.md"))
@@ -353,3 +500,69 @@ def test_fallback_catalog_searchable_without_daemon():
     content = files[0].read_text()
     assert "Remediate" in content
     assert any(kw in content.lower() for kw in ("eager", "join", "dataloader", "batch"))
+
+
+# ── Tier A: all 86 skills loadable via MCP ───────────────────────────────────
+
+@pytest.mark.live
+def test_all_skills_loadable_via_mcp():
+    """Tier A: every catalogue skill is retrievable via real MCP. Recall@10 ≥ 0.95, @5 ≥ 0.90."""
+    if not _ose_available():
+        pytest.skip("OSE daemon not available")
+    hits10, hits5, misses = 0, 0, []
+    for query, slug in ALL_SKILLS:
+        try:
+            top10 = _mcp_search(query, top_k=10)
+            if any(slug in p for p in top10):
+                hits10 += 1
+                if any(slug in p for p in top10[:5]):
+                    hits5 += 1
+            else:
+                misses.append(f"MISS@10 {slug}: top10={[Path(p).stem for p in top10]}")
+        except Exception as e:
+            misses.append(f"ERROR {slug}: {e}")
+    total = len(ALL_SKILLS)
+    r10, r5 = hits10 / total, hits5 / total
+    if misses:
+        print("\n--- Misses ---\n" + "\n".join(misses))
+    assert r10 >= 0.95, f"Recall@10={r10:.2f}<0.95 ({hits10}/{total})\n" + "\n".join(misses)
+    assert r5 >= 0.90, f"Recall@5={r5:.2f}<0.90 ({hits5}/{total})"
+
+
+# ── Tier B: one skill per discipline driven through claude1 ───────────────────
+
+@pytest.mark.live
+@pytest.mark.slow
+@pytest.mark.parametrize(
+    "discipline,query,slug,keywords", DISCIPLINE_REPRESENTATIVES,
+    ids=[d for d, *_ in DISCIPLINE_REPRESENTATIVES],
+)
+def test_skill_used_live_per_discipline(discipline, query, slug, keywords):
+    """Tier B: one skill per discipline retrieved AND used correctly via claude1 (≥1/3 runs)."""
+    if not _claude_available():
+        pytest.skip("claude CLI not available")
+    if not _ose_available():
+        pytest.skip("OSE daemon not available")
+    config_dir = PROFILE_DIRS["account1"]
+    if not Path(config_dir).exists():
+        pytest.skip("account1 profile not found")
+    prompt = (
+        f"{query}. "
+        "Use the engineering-skill-catalog skill to look up and explain the relevant technique."
+    )
+    results = [_run_claude(prompt, config_dir, timeout=300) for _ in range(3)]
+    if all(_is_unavailable_run(r) for r in results):
+        pytest.skip(f"claude1 unavailable for discipline={discipline}")
+    available = [r for r in results if not _is_unavailable_run(r)]
+    result_texts = [_ose_result_text(r["events"]) for r in available]
+    successes = [
+        i for i, r in enumerate(available)
+        if _has_ose_tool_use(r["events"])
+        and (slug in result_texts[i]
+             or any(kw in result_texts[i].lower() for kw in keywords))
+    ]
+    assert successes, (
+        f"discipline={discipline}: '{slug}' never loaded+used correctly "
+        f"in {len(available)} available run(s). "
+        f"ose_fired={[_has_ose_tool_use(r['events']) for r in available]}"
+    )
