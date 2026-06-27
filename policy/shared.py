@@ -30,6 +30,7 @@ SKILL_NAMES = (
     "lean-implement",
     "lean-review",
     "perf-investigation",
+    "engineering-skill-catalog",
 )
 
 
