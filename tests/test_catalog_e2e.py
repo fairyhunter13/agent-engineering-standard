@@ -96,7 +96,12 @@ def _is_unavailable_run(r: dict) -> bool:
     """True when a run is rate-limited or unauthenticated (environmental, not an integration bug)."""
     if r["returncode"] != 0:
         return True
-    return any(ev.get("type") == "rate_limit_event" for ev in r["events"])
+    # rate_limit_event with status="allowed" is informational — request still went through
+    return any(
+        ev.get("type") == "rate_limit_event"
+        and ev.get("rate_limit_info", {}).get("status") != "allowed"
+        for ev in r["events"]
+    )
 
 
 def _has_ose_tool_use(events: list[dict]) -> bool:
@@ -328,13 +333,15 @@ def test_dispatcher_skill_visible_to_claude1_profile():
 
 @pytest.mark.live
 def test_non_se_prompt_does_not_invoke_ose():
-    """Layer 4: a non-SE prompt must not trigger the OSE search tool."""
+    """Layer 4: a non-SE prompt must not trigger the OSE search tool (via claude1)."""
     if not _claude_available():
         pytest.skip("claude CLI not available")
-    config_dir = PROFILE_DIRS["main"]
+    config_dir = PROFILE_DIRS["account1"]  # primary logged-in profile
     if not Path(config_dir).exists():
-        pytest.skip("main profile not found")
+        pytest.skip("account1 profile not found")
     result = _run_claude("What is the capital of France? One word.", config_dir)
+    if _is_unavailable_run(result):
+        pytest.skip("claude1 unavailable (rate-limited or unauthenticated)")
     assert result["returncode"] == 0
     assert not _has_ose_tool_use(result["events"]), "OSE invoked for non-SE prompt"
 
