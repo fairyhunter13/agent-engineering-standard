@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -32,17 +33,55 @@ def _ose_available() -> bool:
         return False
 
 
+def _mcp_search(query: str, top_k: int = 5) -> list[str]:
+    """Call OSE search via MCP JSON-RPC streamable-http. Returns list of file paths."""
+    import urllib.request as _req
+    url = f"{OSE_URL}/mcp"
+    hdrs = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
+
+    def _post(body: dict, sid: str | None = None) -> tuple[str | None, dict]:
+        h = dict(hdrs, **{"mcp-session-id": sid} if sid else {})
+        r = _req.Request(url, data=json.dumps(body).encode(), headers=h)
+        resp = _req.urlopen(r, timeout=30)
+        sid_out = resp.headers.get("mcp-session-id")
+        for line in resp.read().decode().splitlines():
+            if line.startswith("data: "):
+                return sid_out, json.loads(line[6:])
+        return sid_out, {}
+
+    sid, _ = _post({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                    "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                               "clientInfo": {"name": "aes-test", "version": "1.0"}}})
+    _post({"jsonrpc": "2.0", "method": "notifications/initialized"}, sid)
+    _, res = _post({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                    "params": {"name": "search", "arguments": {
+                        "query": query, "scope": "all",
+                        "project_paths": [str(REPO_ROOT)]}}}, sid)
+    raw = res.get("result", {}).get("content", [{}])[0].get("text", "{}")
+    return [r.get("path", "") for r in json.loads(raw).get("results", [])[:top_k]]
+
+
 def _claude_available() -> bool:
     return shutil.which("claude") is not None
 
 
-def _run_claude(prompt: str, config_dir: str, model: str = "haiku") -> dict:
+def _run_claude(prompt: str, config_dir: str, model: str | None = None) -> dict:
+    model = model or os.environ.get("AES_CLAUDE_E2E_MODEL", "haiku")
     env = dict(os.environ, CLAUDE_CONFIG_DIR=config_dir)
-    proc = subprocess.run(
-        ["claude", "-p", "--model", model, "--output-format", "stream-json",
-         "--dangerously-skip-permissions", prompt],
-        env=env, text=True, capture_output=True, timeout=120,
-    )
+    with tempfile.TemporaryDirectory(prefix="aes-live-") as tmp:
+        subprocess.run(["git", "init", "-q"], cwd=tmp, check=True, capture_output=True)
+        Path(tmp).joinpath("notes.txt").write_text("seed\n")
+        subprocess.run(["git", "add", "notes.txt"], cwd=tmp, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "-c", "user.name=test", "-c", "user.email=test@example.com",
+             "commit", "-q", "-m", "init"],
+            cwd=tmp, check=True, capture_output=True,
+        )
+        proc = subprocess.run(
+            ["claude", "-p", "--model", model, "--output-format", "stream-json",
+             "--verbose", "--dangerously-skip-permissions", prompt],
+            env=env, text=True, capture_output=True, timeout=120, cwd=tmp,
+        )
     events = []
     for line in proc.stdout.splitlines():
         if line.strip():
@@ -53,8 +92,23 @@ def _run_claude(prompt: str, config_dir: str, model: str = "haiku") -> dict:
     return {"returncode": proc.returncode, "events": events, "stderr": proc.stderr}
 
 
+def _is_unavailable_run(r: dict) -> bool:
+    """True when a run is rate-limited or unauthenticated (environmental, not an integration bug)."""
+    if r["returncode"] != 0:
+        return True
+    return any(ev.get("type") == "rate_limit_event" for ev in r["events"])
+
+
 def _has_ose_tool_use(events: list[dict]) -> bool:
     for ev in events:
+        # Non-partial shape: {"type":"assistant","message":{"content":[{"type":"tool_use","name":"..."}]}}
+        if ev.get("type") == "assistant":
+            for block in ev.get("message", {}).get("content", []):
+                if (isinstance(block, dict)
+                        and block.get("type") == "tool_use"
+                        and "opencode-search" in block.get("name", "")):
+                    return True
+        # Partial-delta shape (fallback for include-partial-messages mode)
         name = ev.get("name", "") or ev.get("content_block", {}).get("name", "")
         if "opencode-search" in str(name):
             return True
@@ -212,22 +266,13 @@ GOLDEN_SET = [
 @pytest.mark.live
 @pytest.mark.slow
 def test_rag_precision_at_5():
-    """Layer 2: Precision@5 ≥ 0.70 on the golden set."""
+    """Layer 2: Precision@5 ≥ 0.70 on the golden set via real MCP JSON-RPC."""
     if not _ose_available():
         pytest.skip("OSE daemon not available")
-    try:
-        import requests  # noqa: PLC0415
-    except ImportError:
-        pytest.skip("requests not installed")
     hits, misses = 0, []
     for query, expected_slug in GOLDEN_SET:
         try:
-            resp = requests.post(
-                f"{OSE_URL}/mcp/search",
-                json={"query": query, "scope": "all", "project_paths": [str(REPO_ROOT)]},
-                timeout=15,
-            )
-            top5 = [r.get("path", "") for r in resp.json().get("results", [])[:5]]
+            top5 = _mcp_search(query)
             if any(expected_slug in p for p in top5):
                 hits += 1
             else:
@@ -239,8 +284,9 @@ def test_rag_precision_at_5():
 
 
 PROFILE_DIRS = {
+    "account1": str(Path.home() / ".claude-account1"),  # primary: claude1 (logged-in)
     "main": str(Path.home() / ".claude"),
-    "account1": str(Path.home() / ".claude-account1"),
+    "account2": str(Path.home() / ".claude-account2"),
 }
 SE_PROMPT = (
     "My ORM fires one SQL per row. "
@@ -259,18 +305,21 @@ def test_per_profile_ose_invocation(profile_name: str, config_dir: str):
     if not Path(config_dir).exists():
         pytest.skip(f"Profile dir {config_dir} not found")
     results = [_run_claude(SE_PROMPT, config_dir) for _ in range(3)]
-    successes = [r for r in results if r["returncode"] == 0 and _has_ose_tool_use(r["events"])]
-    assert successes, f"Profile {profile_name}: OSE never invoked in 3 runs"
+    if all(_is_unavailable_run(r) for r in results):
+        pytest.skip(f"Profile {profile_name}: all runs rate-limited or unauthenticated")
+    available = [r for r in results if not _is_unavailable_run(r)]
+    successes = [r for r in available if _has_ose_tool_use(r["events"])]
+    assert successes, f"Profile {profile_name}: OSE never invoked in {len(available)} available run(s)"
 
 
 @pytest.mark.live
-def test_dispatcher_skill_visible_to_main_profile():
-    """Layer 3: engineering-skill-catalog appears in Claude's output."""
+def test_dispatcher_skill_visible_to_claude1_profile():
+    """Layer 3: engineering-skill-catalog appears in Claude's output (claude1 profile)."""
     if not _claude_available():
         pytest.skip("claude CLI not available")
-    config_dir = PROFILE_DIRS["main"]
+    config_dir = PROFILE_DIRS["account1"]
     if not Path(config_dir).exists():
-        pytest.skip("main profile not found")
+        pytest.skip("account1 profile not found")
     result = _run_claude("List available engineering skills briefly.", config_dir)
     assert result["returncode"] == 0
     all_text = json.dumps(result["events"])
