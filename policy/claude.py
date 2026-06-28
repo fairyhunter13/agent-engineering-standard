@@ -34,6 +34,11 @@ CLAUDE_SETTINGS_HOOKS = {
             "hooks": [{"type": "command", "command": "python3 {repo}/hooks/claude/stop_verify.py"}],
         }
     ],
+    "SessionStart": [
+        {
+            "hooks": [{"type": "command", "command": "python3 {repo}/hooks/claude/clean_worktrees.py"}],
+        }
+    ],
 }
 
 LEGACY_CLAUDE_HOOK_COMMANDS = (

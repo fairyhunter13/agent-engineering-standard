@@ -59,3 +59,7 @@ OSE
     assert "python3 /home/hafiz/git/github.com/fairyhunter13/agent-engineering-standard/hooks/lean_gate.py" not in all_commands
     assert dot_claude_main.read_text() == '{"mcpServers":{"opencode-search":{"type":"stdio"}}}'
     assert (home / ".claude" / "skills" / "lean-change").is_symlink()
+    # SessionStart hook must be registered for worktree auto-clean
+    session_start_hooks = main_settings["hooks"].get("SessionStart", [])
+    session_start_commands = [h["command"] for entry in session_start_hooks for h in entry.get("hooks", [])]
+    assert any("clean_worktrees" in cmd for cmd in session_start_commands)
